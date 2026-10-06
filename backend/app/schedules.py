@@ -20,6 +20,7 @@ from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
 from app.database import AsyncSessionLocal
 from app.crud.team_game_logs import build_team_game_logs
 from app.crud.team_game_features import update_team_game_features
+import asyncio
 import datetime
 
 CURRENT_TEAMS = [
@@ -145,13 +146,14 @@ async def scrape_all_player_logs(seasons: list[int] | None = None):
         seasons = [get_current_season_start_year()]
     async with AsyncSessionLocal() as db:
         for season in seasons:
-            all_skaters = scrape_all_skater_game_logs(season)
+            # blocking download + pandas parse, so keep it off the event loop
+            all_skaters = await asyncio.to_thread(scrape_all_skater_game_logs, season)
             if all_skaters:
                 unplaceable = await add_missing_players(db, {skater.player_id for skater in all_skaters})
                 # drop logs for players we couldn't fetch (single pass)
                 all_skaters = [skater for skater in all_skaters if skater.player_id not in unplaceable]
                 await upsert_scraped_game_logs(db, all_skaters)
-            all_goalies = scrape_all_goalie_game_logs(season) 
+            all_goalies = await asyncio.to_thread(scrape_all_goalie_game_logs, season)
             if all_goalies:
                 unplaceable = await add_missing_players(db, {goalie.player_id for goalie in all_goalies})
                 all_goalies = [goalie for goalie in all_goalies if goalie.player_id not in unplaceable]
