@@ -32,7 +32,7 @@ export interface SearchTeamResult {
 
 export interface TeamPredictionSide {
   tri_code: string;
-  prob_win: number;
+  prob_win: number | null;
 }
 
 export interface TeamGamePrediction {
