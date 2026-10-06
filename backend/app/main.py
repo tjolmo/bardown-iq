@@ -8,7 +8,7 @@ from .routers import teams_router, player_router
 from .database import AsyncSessionLocal
 from .schedules import (add_current_teams_to_db, add_old_teams_to_db, fetch_current_rosters_for_all_teams, 
                         fetch_current_schedules_for_all_teams, fetch_all_season_schedules_for_all_teams, update_daily_features, scrape_all_player_logs,
-                        fetch_current_scores, fetch_current_player_props)
+                        fetch_current_scores, fetch_current_player_props, nightly_pipeline)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 async def run_startup_refresh():
@@ -33,13 +33,9 @@ async def run_startup_refresh():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(fetch_current_schedules_for_all_teams,trigger="cron",hour=3)
-    scheduler.add_job(fetch_current_rosters_for_all_teams,trigger="cron",hour=3)
-    scheduler.add_job(scrape_all_player_logs, trigger="cron",hour=3)
+    # one ordered nightly job instead of independent 03:00/04:00 jobs that raced each other
+    scheduler.add_job(nightly_pipeline, trigger="cron", hour=3, max_instances=1, coalesce=True, misfire_grace_time=3600)
     scheduler.add_job(fetch_current_scores, trigger="interval", minutes=10)
-    scheduler.add_job(fetch_current_player_props, trigger="cron", hour=3)
-    scheduler.add_job(update_daily_features, trigger="cron", hour=3)
-    scheduler.add_job(train_models, trigger="cron", hour=4)
     scheduler.start()
     # keep a reference so the task isn't garbage collected, and so it can be cancelled on shutdown
     startup_task = asyncio.create_task(run_startup_refresh())
