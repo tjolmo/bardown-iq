@@ -2,7 +2,8 @@ from predictions.train import train_team_classifiers, train_goalie_models, train
 from app.crud.props import upsert_player_props
 from app.schemas.player import PlayerPropOut
 from app.crud.players import get_player_by_name_and_roster_options
-from app.crud.teams import search_teams_by_name
+from app.crud.teams import get_all_teams
+from app.name_matching import normalize_name
 from app.crud.games import get_all_games_for_date
 from external.odds_api.player_props import get_upcoming_games_odds_api, get_player_props
 from app.crud.goalie_game_features import update_goalie_game_features
@@ -174,23 +175,16 @@ async def fetch_current_player_props():
     async with AsyncSessionLocal() as db:
         events = await get_upcoming_games_odds_api(start_time, end_time)
         all_games_today = await get_all_games_for_date(db, int_date)
+        # match Odds API team names to tri codes ignoring accents/case/punctuation ("Montreal" vs "Montréal")
+        tri_codes_by_name = {normalize_name(team.current_name): team.tri_code for team in await get_all_teams(db)}
         #match to games in db
         for event in events:
-            home_team_in_db = await search_teams_by_name(db, event.home_team, 1)
-            away_team_in_db = await search_teams_by_name(db, event.away_team, 1)
-            potential_tri_codes = []
+            home_tri_code = tri_codes_by_name.get(normalize_name(event.home_team))
+            away_tri_code = tri_codes_by_name.get(normalize_name(event.away_team))
+            potential_tri_codes = [code for code in (home_tri_code, away_tri_code) if code]
 
-            home_tri_code = None
-            if home_team_in_db:
-                home_tri_code = home_team_in_db[0].tri_code
-                potential_tri_codes.append(home_tri_code)
-            away_tri_code = None
-            if away_team_in_db:
-                away_tri_code = away_team_in_db[0].tri_code
-                potential_tri_codes.append(away_tri_code)
-            
             if len(potential_tri_codes) == 0:
-                print(f"No team found for event {event.event_id}")
+                print(f"No team found for event {event.event_id} ({event.away_team} @ {event.home_team})")
                 continue
 
             game_id = None
