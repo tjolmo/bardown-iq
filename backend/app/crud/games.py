@@ -31,6 +31,28 @@ async def upsert_scraped_games_from_schedule(db: AsyncSession, game_data: list[G
     await db.execute(stmt)
     await db.commit()
 
+# game states where a game is over and its score will no longer change
+FINISHED_GAME_STATES = ("OFF", "FINAL")
+# poll from shortly before puck drop until well past the longest realistic game
+POLL_LEAD_TIME = datetime.timedelta(minutes=10)
+POLL_MAX_GAME_LENGTH = datetime.timedelta(hours=8)
+
+async def has_games_to_poll(db: AsyncSession, now: datetime.datetime | None = None) -> bool:
+    """True if any game is about to start or in progress, i.e. its start time is within the
+    lead time or in the past (up to the max game length) and it is not finished. The max
+    game length keeps a postponed game stuck in a non-final state from being polled forever."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    result = await db.execute(
+        select(Games.id).
+        where(
+            Games.start_time <= now + POLL_LEAD_TIME,
+            Games.start_time >= now - POLL_MAX_GAME_LENGTH,
+            Games.game_state.not_in(FINISHED_GAME_STATES)
+        ).
+        limit(1)
+    )
+    return result.first() is not None
+
 async def get_team_last_5_games(db: AsyncSession, tri_code: str) -> list[Games]:
     """Fetches last 5 games from db for a team by tri code and season."""
     result = await db.execute(
