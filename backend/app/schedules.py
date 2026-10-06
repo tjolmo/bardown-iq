@@ -120,7 +120,16 @@ async def update_daily_features():
         await build_team_game_logs(db)
         await update_team_game_features(db)
 
-async def scrape_all_player_logs(seasons:list[int]):
+def get_current_season_start_year(today: datetime.date | None = None) -> int:
+    """Start year of the NHL season in progress (MoneyPuck's `season` value), e.g. 2025 for 2025-26.
+    The season rolls over on Sept 1, after the prior season's playoffs end and before preseason."""
+    today = today or datetime.date.today()
+    return today.year if today.month >= 9 else today.year - 1
+
+async def scrape_all_player_logs(seasons: list[int] | None = None):
+    # resolve at run time so a long-running scheduler follows the calendar
+    if seasons is None:
+        seasons = [get_current_season_start_year()]
     async with AsyncSessionLocal() as db:
         for season in seasons:
             all_skaters = scrape_all_skater_game_logs(season)
