@@ -20,6 +20,7 @@ from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
 from app.database import AsyncSessionLocal
 from app.crud.team_game_logs import build_team_game_logs
 from app.crud.team_game_features import update_team_game_features
+import asyncio
 import datetime
 
 CURRENT_TEAMS = [
@@ -123,7 +124,8 @@ async def update_daily_features():
 async def scrape_all_player_logs(seasons:list[int]):
     async with AsyncSessionLocal() as db:
         for season in seasons:
-            all_skaters = scrape_all_skater_game_logs(season)
+            # blocking download + pandas parse, so keep it off the event loop
+            all_skaters = await asyncio.to_thread(scrape_all_skater_game_logs, season)
             if all_skaters:
                 # get unique player ids
                 player_ids = [skater.player_id for skater in all_skaters]
@@ -137,7 +139,7 @@ async def scrape_all_player_logs(seasons:list[int]):
                         # remove from all_skaters
                         all_skaters = [skater for skater in all_skaters if skater.player_id != player]
                 await upsert_scraped_game_logs(db, all_skaters)
-            all_goalies = scrape_all_goalie_game_logs(season) 
+            all_goalies = await asyncio.to_thread(scrape_all_goalie_game_logs, season)
             if all_goalies:
                 player_ids = [goalie.player_id for goalie in all_goalies]
                 unique_player_ids = list(set(player_ids))
