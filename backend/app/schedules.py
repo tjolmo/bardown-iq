@@ -1,4 +1,4 @@
-from predictions.train import train_team_classifiers, train_goalie_models, train_skater_classifiers, train_skater_models
+from predictions.train import train_all_models
 from app.crud.props import upsert_player_props
 from app.schemas.player import PlayerPropOut
 from app.crud.players import get_players_on_teams
@@ -8,8 +8,6 @@ from app.name_matching import normalize_name
 from app.crud.games import get_all_games_for_date
 from external.odds_api.dedupe import select_best_props
 from external.odds_api.player_props import get_upcoming_games_odds_api, get_player_props
-from app.crud.goalie_game_features import update_goalie_game_features
-from app.crud.skater_game_features import update_skater_game_features
 from external.moneypuck.player import scrape_all_goalie_game_logs, scrape_all_skater_game_logs
 from external.nhl.players import fetch_and_get_players_info
 from external.nhl.teams import fetch_and_clean_team, fetch_and_clean_team_roster, fetch_and_clean_team_schedule
@@ -21,8 +19,6 @@ from .crud.players import get_players_not_in_db, upsert_scraped_player, set_all_
 from .crud.skater_game_logs import upsert_scraped_game_logs
 from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
 from app.database import AsyncSessionLocal
-from app.crud.team_game_logs import build_team_game_logs
-from app.crud.team_game_features import update_team_game_features
 import asyncio
 from external.http import gather_bounded
 import datetime
@@ -116,13 +112,6 @@ async def fetch_all_season_schedules_for_all_teams():
             # add every game to db after player scrape to ensure that players added first
             if schedule_data_to_add:
                 await upsert_scraped_games_from_schedule(db, schedule_data_to_add)
-
-async def update_daily_features():
-    async with AsyncSessionLocal() as db:
-        await update_skater_game_features(db)
-        await update_goalie_game_features(db)
-        await build_team_game_logs(db)
-        await update_team_game_features(db)
 
 def get_current_season_start_year(today: datetime.date | None = None) -> int:
     """Start year of the NHL season in progress (MoneyPuck's `season` value), e.g. 2025 for 2025-26.
@@ -231,11 +220,9 @@ async def fetch_current_player_props():
                 print(f"Failed to process props for event {event.event_id}: {e}")
 
 async def train_models():
+    # features are built from the game logs inside training, so there is no separate feature step
     async with AsyncSessionLocal() as db:
-        await train_skater_models(db)
-        await train_skater_classifiers(db)
-        await train_goalie_models(db)
-        await train_team_classifiers(db)
+        await train_all_models(db)
 
 
 async def run_step(name: str, step):
@@ -249,35 +236,28 @@ async def run_step(name: str, step):
 
 async def nightly_pipeline():
     """Runs the nightly jobs in dependency order: schedules and rosters first (new games and players),
-    then game logs, then features (which need the logs), then props (which need games and rosters),
-    and finally training (which needs the fresh features)."""
+    then game logs, then props (which need games and rosters), and finally training (which needs the fresh logs)."""
     await run_step("schedules", fetch_current_schedules_for_all_teams)
     await run_step("rosters", fetch_current_rosters_for_all_teams)
     logs_ok = await run_step("player logs", scrape_all_player_logs)
-    if logs_ok:
-        features_ok = await run_step("features", update_daily_features)
-    else:
-        # features built from a partial log load would be wrong, so skip them (and training) this run
-        print("Skipping features and training: player log scrape failed")
-        features_ok = False
+    if not logs_ok:
+        # models trained on a partial log load would be wrong, so keep yesterday's models this run
+        print("Skipping training: player log scrape failed")
     await run_step("props", fetch_current_player_props)
-    if features_ok:
+    if logs_ok:
         await run_step("training", train_models)
 
 async def full_refresh():
-    """Refreshes everything: teams, schedules, rosters, game logs, features, live scores, props and models.
+    """Refreshes everything: teams, schedules, rosters, game logs, live scores, props and models.
     Same ordering and skip rules as the nightly pipeline, plus the team tables the nightly run leaves alone."""
     await run_step("teams", add_current_teams_to_db)
     await run_step("old teams", add_old_teams_to_db)
     await run_step("schedules", fetch_current_schedules_for_all_teams)
     await run_step("rosters", fetch_current_rosters_for_all_teams)
     logs_ok = await run_step("player logs", scrape_all_player_logs)
-    if logs_ok:
-        features_ok = await run_step("features", update_daily_features)
-    else:
-        print("Skipping features and training: player log scrape failed")
-        features_ok = False
+    if not logs_ok:
+        print("Skipping training: player log scrape failed")
     await run_step("scores", fetch_current_scores)
     await run_step("props", fetch_current_player_props)
-    if features_ok:
+    if logs_ok:
         await run_step("training", train_models)

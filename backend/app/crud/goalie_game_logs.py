@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import GoalieGameLog
 from external.moneypuck.response_models import GoalieGameLogResponse
 import datetime
-import pandas as pd
 
 async def upsert_scraped_goalie_game_logs(db: AsyncSession, game_logs_data: list[GoalieGameLogResponse]):
     """Upserts scraped goale game logs into local db GoalieGameLogs table."""
@@ -124,38 +123,3 @@ async def get_goalie_last_5_basic_stats_from_db(db: AsyncSession, player_id: int
             "home_away": stat[4]
         } for stat in last_5_stats]
     return None
-
-async def calculate_rolling_features_last_5_games_goalie(db: AsyncSession, player_id: int) -> pd.DataFrame:
-    """Calculates rolling features for the last 5 games for a goalie by player ID."""
-    last_5 = await db.execute(
-        select(
-            GoalieGameLog.x_goals_against,
-            GoalieGameLog.goals_against,
-            GoalieGameLog.sog,
-            GoalieGameLog.flurry_adjusted_x_goals,
-            GoalieGameLog.high_danger_x_goals,
-            GoalieGameLog.x_sog,
-            GoalieGameLog.high_danger_shots,
-            GoalieGameLog.rebounds,
-            GoalieGameLog.x_rebounds,
-            GoalieGameLog.freeze,
-            GoalieGameLog.x_freeze,
-        ).where(GoalieGameLog.player_id == player_id).order_by(GoalieGameLog.game_date.desc()).limit(5)
-    )
-    last_5 = last_5.mappings().all()
-    if len(last_5) < 5:
-        return pd.DataFrame()
-    rolling_features = pd.DataFrame({
-        "rolling_x_goals_against": sum([game["x_goals_against"] for game in last_5]) / 5,
-        "rolling_goals_against": sum([game["goals_against"] for game in last_5]) / 5,
-        "rolling_sog": sum([game["sog"] for game in last_5]) / 5,
-        "rolling_flurry_adjusted_x_goals": sum([game["flurry_adjusted_x_goals"] for game in last_5]) / 5,
-        "rolling_high_danger_x_goals": sum([game["high_danger_x_goals"] for game in last_5]) / 5,
-        "rolling_x_sog": sum([game["x_sog"] for game in last_5]) / 5,
-        "rolling_high_danger_shots": sum([game["high_danger_shots"] for game in last_5]) / 5,
-        "rolling_rebounds": sum([game["rebounds"] for game in last_5]) / 5,
-        "rolling_x_rebounds": sum([game["x_rebounds"] for game in last_5]) / 5,
-        "rolling_freeze": sum([game["freeze"] for game in last_5]) / 5,
-        "rolling_x_freeze": sum([game["x_freeze"] for game in last_5]) / 5,
-    }, index=[0])
-    return rolling_features

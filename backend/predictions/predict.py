@@ -1,93 +1,141 @@
-import numpy as np
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.crud.team_game_logs import calculate_rolling_features_for_team
+import asyncio
+import datetime
+import time
 import joblib
-from .config import (
-    SKATER_TARGET_COLUMNS,
-    SKATER_CLF_TARGET_COLUMNS,
-    skater_model_path,
-    skater_clf_model_path,
-    GOALIE_TARGET_COLUMNS,
-    goalie_model_path,
-    TEAM_CLF_TARGET_COLUMNS,
-    team_clf_model_path,
-    TEAM_FEATURE_COLUMNS_SINGLE,
-    TEAM_FEATURE_COLUMNS,
-)
+import numpy as np
+import pandas as pd
+from sqlalchemy.ext.asyncio import AsyncSession
+from . import features as F
+from .config import SKATER_BUNDLE, GOALIE_BUNDLE, TEAM_BUNDLE, SKATER_TARGETS, GOALIE_TARGETS, GOALIE_TREND_TARGETS
+from .data import load_skater_logs, load_goalie_logs, load_team_offense, load_games
 
-def load_skater_models() -> dict[str, object]:
-    models: dict[str, object] = {}
-    for target in SKATER_TARGET_COLUMNS:
-        path = skater_model_path(target)
-        if not path.exists():
-            raise FileNotFoundError(
-                f"No saved model for '{target}' at {path}.  "
-            )
-        models[target] = joblib.load(path)
-    return models
+_bundles: dict = {}
 
-def load_skater_clf_models() -> dict[str, object]:
-    models: dict[str, object] = {}
-    for target in SKATER_CLF_TARGET_COLUMNS:
-        path = skater_clf_model_path(target)
-        if not path.exists():
-            raise FileNotFoundError(
-                f"No saved classifier for '{target}' at {path}.  "
-            )
-        models[target] = joblib.load(path)
-    return models
+def load_bundle(path) -> dict:
+    """Loads a saved model bundle, reloading it when nightly training rewrites the file."""
+    if not path.exists():
+        raise FileNotFoundError(f"No saved models at {path}. Train the models first.")
+    mtime = path.stat().st_mtime
+    cached = _bundles.get(path)
+    if cached is None or cached[0] != mtime:
+        cached = (mtime, joblib.load(path))
+        _bundles[path] = cached
+    return cached[1]
 
-def load_goalie_models() -> dict[str, object]:
-    models: dict[str, object] = {}
-    for target in GOALIE_TARGET_COLUMNS:
-        path = goalie_model_path(target)
-        if not path.exists():
-            raise FileNotFoundError(
-                f"No saved model for '{target}' at {path}.  "
-            )
-        models[target] = joblib.load(path)
-    return models
+# ---------- league-wide team context (shared by every prediction) ----------
 
-def load_team_clf_models() -> dict[str, object]:
-    models: dict[str, object] = {}
-    for target in TEAM_CLF_TARGET_COLUMNS:
-        path = team_clf_model_path(target)
-        if not path.exists():
-            raise FileNotFoundError(
-                f"No saved classifier for '{target}' at {path}.  "
-            )
-        models[target] = joblib.load(path)
-    return models
+CONTEXT_TTL_SECONDS = 600
+_context: dict = {"built_at": 0.0}
+_context_lock = asyncio.Lock()
 
+def _today() -> int:
+    return int(datetime.date.today().strftime("%Y%m%d"))
+
+def _placeholder_games(games: pd.DataFrame, played_ids: set) -> pd.DataFrame:
+    """Games without game logs that still belong in team history: upcoming games (to compute their pre-game
+    features) and games already finished but not scraped yet (so rest days and back-to-backs stay right).
+    Past games that never finished (postponed, stale state) are left out."""
+    missing = games[~games["id"].isin(played_ids)]
+    return missing[missing["home_score"].notna() | (missing["date"] >= _today())]
+
+def _placeholder_team_rows(games: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for g in games.itertuples():
+        for team, opponent, is_home in ((g.home_team_tri_code, g.away_team_tri_code, 1.0),
+                                        (g.away_team_tri_code, g.home_team_tri_code, 0.0)):
+            rows.append({"game_id": g.id, "team": team, "opponent": opponent, "season": g.season,
+                         "game_date": g.date, "is_home": is_home})
+    return pd.DataFrame(rows)
+
+def _build_context(team_offense: pd.DataFrame, games: pd.DataFrame, team_mtime) -> dict:
+    placeholders = _placeholder_games(games, set(team_offense["game_id"]))
+    team_feats = F.team_history_features(
+        F.build_team_games(pd.concat([team_offense, _placeholder_team_rows(placeholders)], ignore_index=True)))
+    win_probs: dict[int, float] = {}
+    if team_mtime is not None:
+        bundle = load_bundle(TEAM_BUNDLE)
+        frame = F.build_team_model_frame(games, team_feats)
+        frame = frame[frame["home_score"].isna() & (frame["date"] >= _today()) & frame["home_games_season"].notna()]
+        if not frame.empty:
+            p = (bundle["xgb"].predict_proba(frame[bundle["features"]].astype(np.float32))[:, 1]
+                 + bundle["logistic"].predict_proba(frame[bundle["logistic_features"]])[:, 1]) / 2
+            win_probs = dict(zip(frame["game_id"].astype(int), p.astype(float)))
+    return {"team_feats": team_feats, "win_probs": win_probs, "placeholders": placeholders}
+
+async def _team_context(db: AsyncSession) -> dict:
+    """Pre-game team features and win probabilities for every scheduled game, rebuilt at most every 10 minutes."""
+    async with _context_lock:   # concurrent cache misses wait for one rebuild instead of each doing it
+        team_mtime = TEAM_BUNDLE.stat().st_mtime if TEAM_BUNDLE.exists() else None
+        if time.monotonic() - _context["built_at"] < CONTEXT_TTL_SECONDS and _context.get("team_mtime") == team_mtime:
+            return _context
+        team_offense = await load_team_offense(db)
+        games = await load_games(db)
+        if team_offense.empty or games.empty:
+            raise LookupError("No game logs or games in the DB to predict from")
+        # the Elo loop and groupbys take a moment, so keep them off the event loop
+        built = await asyncio.to_thread(_build_context, team_offense, games, team_mtime)
+        _context.update(built, built_at=time.monotonic(), team_mtime=team_mtime)
+        return _context
+
+def _upcoming_player_rows(logs: pd.DataFrame, game, team: str, placeholders: pd.DataFrame) -> pd.DataFrame:
+    """The target game plus any of the team's finished-but-unscraped games since the player's last log,
+    so rest days match what training saw. Stats are unknown, so they only shape the schedule features."""
+    last_logged = logs["game_date"].max()
+    on_team = (placeholders["home_team_tri_code"] == team) | (placeholders["away_team_tri_code"] == team)
+    between = placeholders[on_team & placeholders["home_score"].notna()
+                           & (placeholders["date"] > last_logged) & (placeholders["date"] < game.date)]
+    targets = [(g.id, g.season, g.date, g.home_team_tri_code, g.away_team_tri_code) for g in between.itertuples()]
+    targets.append((game.id, game.season // 10000, game.date, game.home_team_tri_code, game.away_team_tri_code))
+    rows = []
+    for game_id, season, date, home, away in targets:
+        is_home = home == team
+        row = {"game_id": game_id, "player_id": logs["player_id"].iloc[0], "season": season, "game_date": date,
+               "team": team, "is_home": float(is_home), "opponent": away if is_home else home}
+        if "position" in logs:
+            row["position"] = logs["position"].iloc[0]
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+# ---------- public API ----------
 
 async def get_upcoming_game_prediction(game, db: AsyncSession) -> list[float] | None:
-    game_date_str = str(game.date)
-    year = int(game_date_str[:4])
-    month = int(game_date_str[4:6])
-    # account for season start
-    current_season = year if month >= 9 else year - 1
-
-    # Calculate rolling features for both teams
-    home_features_df = await calculate_rolling_features_for_team(db, game.home_team_tri_code, season=current_season)
-    if home_features_df.empty:
+    """[P(home win), P(away win)] for a scheduled game, or None if either team lacks history."""
+    if not TEAM_BUNDLE.exists():
         return None
-    away_features_df = await calculate_rolling_features_for_team(db, game.away_team_tri_code, season=current_season)
-    if away_features_df.empty:
-        return None
-    
     try:
-        clf_models = load_team_clf_models()
-    except FileNotFoundError as e:
+        p_home = (await _team_context(db))["win_probs"].get(game.id)
+    except LookupError:
         return None
+    if p_home is None:
+        return None
+    return [float(p_home), 1.0 - float(p_home)]
 
-    # transform into format for model
-    home_row = home_features_df[TEAM_FEATURE_COLUMNS_SINGLE].copy()
-    home_row["is_home"] = 1
-    for col in TEAM_FEATURE_COLUMNS_SINGLE:
-        home_row[f"opp_{col}"] = away_features_df[col].values[0]
-    X_home = home_row[TEAM_FEATURE_COLUMNS].astype(np.float32)
+async def predict_skater(db: AsyncSession, player_id: int, team: str, game) -> dict | None:
+    """Expected goals/assists/points in `game` and the chance of at least one of each. None without history."""
+    bundle = load_bundle(SKATER_BUNDLE)
+    logs = await load_skater_logs(db, [player_id])
+    if logs.empty:
+        return None
+    ctx = await _team_context(db)
+    upcoming = _upcoming_player_rows(logs, game, team, ctx["placeholders"])
+    df, _ = F.skater_features(pd.concat([logs, upcoming], ignore_index=True), ctx["team_feats"],
+                              league_rates=bundle["league_rates"])
+    X = df.loc[df["game_id"] == game.id, bundle["features"]].tail(1).astype(np.float32)
+    expected = {t: float(bundle["models"][t].predict(X)[0]) for t in SKATER_TARGETS}
+    return {**expected, **{f"prob_{t}": float(1.0 - np.exp(-mu)) for t, mu in expected.items()}}
 
-    # make predictions
-    prob_home_win = float(clf_models["win"].predict_proba(X_home)[:, 1][0])
-    prob_away_win = 1.0 - prob_home_win
-    return [prob_home_win, prob_away_win]
+async def predict_goalie(db: AsyncSession, player_id: int, team: str, game) -> dict | None:
+    """Expected goals against and shots on goal against if the goalie starts `game`. None without history."""
+    bundle = load_bundle(GOALIE_BUNDLE)
+    logs = await load_goalie_logs(db, [player_id])
+    if logs.empty:
+        return None
+    ctx = await _team_context(db)
+    upcoming = _upcoming_player_rows(logs, game, team, ctx["placeholders"])
+    df = F.goalie_features(pd.concat([logs, upcoming], ignore_index=True), ctx["team_feats"])
+    X = df.loc[df["game_id"] == game.id, bundle["features"]].tail(1).astype(np.float32)
+    out = {}
+    for t in GOALIE_TARGETS:
+        margin = np.log([bundle["trends"][t]]) if t in GOALIE_TREND_TARGETS else None
+        out[t] = float(bundle["models"][t].predict(X, base_margin=margin)[0])
+    return out

@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import SkaterGameLog
 from external.moneypuck.response_models import SkaterGameLogResponse
 import datetime
-import pandas as pd
 
 async def upsert_scraped_game_logs(db: AsyncSession, game_logs_data: list[SkaterGameLogResponse]):
     """Upserts scraped player game log into local db PlayerGameLogs table."""
@@ -114,37 +113,3 @@ async def get_skater_last_5_basic_stats_from_db(db: AsyncSession, player_id: int
             } for game in last_5
         ]
     return None
-
-async def calculate_rolling_features_last_5_games(db: AsyncSession, player_id: int) -> pd.DataFrame:
-    """Calculates rolling features for the last 5 games for a player by player ID."""
-    last_5 = await db.execute(
-        select(
-            SkaterGameLog.x_goals,  
-            SkaterGameLog.toi,
-            SkaterGameLog.game_score,
-            SkaterGameLog.shot_attempts,
-            SkaterGameLog.high_danger_shots,
-            SkaterGameLog.on_ice_x_goals_percentage,
-            SkaterGameLog.primary_assists,
-            SkaterGameLog.goals,
-            SkaterGameLog.points,
-        ).where(SkaterGameLog.player_id == player_id).order_by(SkaterGameLog.game_date.desc()).limit(5)
-    )
-    last_5 = last_5.mappings().all()
-    if len(last_5) < 5: # need 5 for prediction
-        return pd.DataFrame()
-    if last_5:
-        # calculate rolling features
-        rolling_features = pd.DataFrame({
-            "rolling_x_goals": sum([game["x_goals"] for game in last_5]) / 5,
-            "rolling_toi": sum([game["toi"] for game in last_5]) / 5,
-            "rolling_game_score": sum([game["game_score"] for game in last_5]) / 5,
-            "rolling_shot_attempts": sum([game["shot_attempts"] for game in last_5]) / 5,
-            "rolling_high_danger_shots": sum([game["high_danger_shots"] for game in last_5]) / 5,
-            "rolling_on_ice_x_goals_percentage": sum([game["on_ice_x_goals_percentage"] for game in last_5]) / 5,
-            "rolling_primary_assists": sum([game["primary_assists"] for game in last_5]) / 5,
-            "rolling_goals": sum([game["goals"] for game in last_5]) / 5,
-            "rolling_points": sum([game["points"] for game in last_5]) / 5,
-        }, index=[0])
-        return rolling_features
-    return pd.DataFrame()

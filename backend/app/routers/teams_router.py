@@ -54,10 +54,7 @@ async def get_team_next_5_games(tri_code: str, offset: int, db = Depends(get_db)
                 return HTTPException(status_code=500, detail=f"Error fetching team info for game {game.id}: {e}")
 
             prediction = await get_upcoming_game_prediction(game, db)
-            if prediction is None:
-                prob_home_win = None
-                prob_away_win = None
-            prob_home_win, prob_away_win = prediction
+            prob_home_win, prob_away_win = prediction if prediction is not None else (None, None)
 
             game_info =TeamScheduledGameInfoOut(
                 id=game.id,

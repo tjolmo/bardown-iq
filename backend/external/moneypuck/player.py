@@ -23,6 +23,16 @@ def _download_season_zip(url: str) -> io.BytesIO:
     response.raise_for_status()
     return io.BytesIO(response.content)
 
+def _season_csv_member(z: zipfile.ZipFile, season: int) -> str:
+    """Finds the season CSV in a zip; older seasons store it under a nested path."""
+    csvs = [n for n in z.namelist() if n.lower().endswith(".csv")]
+    matches = [n for n in csvs if n.rsplit("/", 1)[-1] == f"{season}.csv"]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches and len(csvs) == 1:
+        return csvs[0]
+    raise ValueError(f"Could not find a single {season}.csv in zip; members: {z.namelist()}")
+
 def _validate_rows(model, rows: list[dict], label: str) -> list:
     """Validates each CSV row on its own so one malformed row is skipped (and counted) instead of discarding the season."""
     valid = []
@@ -134,7 +144,7 @@ def scrape_all_skater_game_logs(season: int) -> list[SkaterGameLogResponse] | No
     try:
         csv_data = _download_season_zip(csv_url)
         with zipfile.ZipFile(csv_data) as z:
-            with z.open(f"{season}.csv") as f:
+            with z.open(_season_csv_member(z, season)) as f:
                 df = pd.read_csv(f, usecols=cols)
                 filtered = df.query('situation == "all"').copy()
                 filtered = _normalize_tricodes(filtered)
@@ -161,7 +171,7 @@ def scrape_all_goalie_game_logs(season: int) -> list[GoalieGameLogResponse] | No
     try:
         csv_data = _download_season_zip(csv_url)
         with zipfile.ZipFile(csv_data) as z:
-            with z.open(f"{season}.csv") as f:
+            with z.open(_season_csv_member(z, season)) as f:
                 df = pd.read_csv(f, usecols=cols)
                 filtered = df.query('situation == "all"').copy()
                 filtered = _normalize_tricodes(filtered)
