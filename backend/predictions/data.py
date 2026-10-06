@@ -1,7 +1,7 @@
 import pandas as pd
-from sqlalchemy import select, func, case
+from sqlalchemy import select, case
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models import SkaterGameLog, GoalieGameLog, Games, Player
+from app.models import SkaterGameLog, GoalieGameLog, Games, Player, TeamGameStats, GameOdds
 from app.crud.games import FINISHED_GAME_STATES
 
 def _frame(rows) -> pd.DataFrame:
@@ -39,22 +39,22 @@ async def load_goalie_logs(db: AsyncSession, player_ids: list[int] | None = None
         stmt = stmt.where(GoalieGameLog.player_id.in_(player_ids))
     return _frame((await db.execute(stmt)).mappings().all())
 
-async def load_team_offense(db: AsyncSession) -> pd.DataFrame:
-    """Each team's offensive totals per game, summed from its skaters (complete, unlike goalie logs)."""
-    stmt = (
-        select(
-            SkaterGameLog.game_id, SkaterGameLog.player_team_tricode.label("team"),
-            SkaterGameLog.opposing_team_tricode.label("opponent"), SkaterGameLog.season, SkaterGameLog.game_date,
-            _is_home(SkaterGameLog.home_away),
-            func.sum(SkaterGameLog.goals).label("gf"), func.sum(SkaterGameLog.x_goals).label("xgf"),
-            func.sum(SkaterGameLog.shot_attempts).label("saf"), func.sum(SkaterGameLog.high_danger_shots).label("hdf"),
-        )
-        .group_by(SkaterGameLog.game_id, SkaterGameLog.player_team_tricode, SkaterGameLog.opposing_team_tricode,
-                  SkaterGameLog.season, SkaterGameLog.game_date, SkaterGameLog.home_away)
+async def load_team_stats(db: AsyncSession) -> pd.DataFrame:
+    """Each team's totals per game (regular season and playoffs), named as in predictions.features.TEAM_STATS."""
+    t = TeamGameStats
+    stmt = select(
+        t.game_id, t.team_tri_code.label("team"), t.opposing_team_tri_code.label("opponent"), t.season, t.game_date,
+        _is_home(t.home_away), t.playoff,
+        t.goals_for.label("gf"), t.goals_against.label("ga"), t.x_goals_for.label("xgf"), t.x_goals_against.label("xga"),
+        t.shot_attempts_for.label("saf"), t.shot_attempts_against.label("saa"),
+        t.x_goals_for_5v5.label("xgf5"), t.x_goals_against_5v5.label("xga5"),
+        t.shot_attempts_for_5v5.label("cf5"), t.shot_attempts_against_5v5.label("ca5"),
+        t.goals_for_5v5.label("gf5"), t.goals_against_5v5.label("ga5"),
     )
     df = _frame((await db.execute(stmt)).mappings().all())
     if not df.empty:
-        df[["gf", "xgf", "saf", "hdf"]] = df[["gf", "xgf", "saf", "hdf"]].astype(float)
+        stats = ["gf", "ga", "xgf", "xga", "saf", "saa", "xgf5", "xga5", "cf5", "ca5", "gf5", "ga5"]
+        df[stats] = df[stats].astype(float)
     return df
 
 async def load_games(db: AsyncSession) -> pd.DataFrame:
@@ -69,3 +69,8 @@ async def load_games(db: AsyncSession) -> pd.DataFrame:
     finished = df["game_state"].isin(FINISHED_GAME_STATES)
     df[["home_score", "away_score"]] = df[["home_score", "away_score"]].astype(float).where(finished)
     return df.drop(columns="game_state")
+
+async def load_game_odds(db: AsyncSession) -> pd.DataFrame:
+    stmt = select(GameOdds.game_id, GameOdds.home_prob_novig, GameOdds.total_line)
+    df = _frame((await db.execute(stmt)).mappings().all())
+    return df if not df.empty else pd.DataFrame(columns=["game_id", "home_prob_novig", "total_line"])

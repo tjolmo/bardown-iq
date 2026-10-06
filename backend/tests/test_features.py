@@ -7,7 +7,8 @@ def _team_offense():
     for i, date in enumerate([20251010, 20251012, 20251015, 20251018]):
         for team, opp, home, gf in (("AAA", "BBB", 1.0, 3 + i), ("BBB", "AAA", 0.0, 2)):
             rows.append({"game_id": 100 + i, "team": team, "opponent": opp, "season": 2025, "game_date": date,
-                         "is_home": home, "gf": float(gf), "xgf": 2.5, "saf": 50.0, "hdf": 10.0})
+                         "is_home": home, "gf": float(gf), "ga": 2.0, "xgf": 2.5, "xga": 2.5, "saf": 50.0, "saa": 50.0,
+                         "xgf5": 2.0, "xga5": 2.0, "cf5": 40.0, "ca5": 40.0, "gf5": 2.0, "ga5": 2.0})
     return pd.DataFrame(rows)
 
 def test_team_features_use_only_prior_games():

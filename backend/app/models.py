@@ -203,3 +203,49 @@ class Props(Base):
     over_under: Mapped[str] = mapped_column(primary_key=True)
     odds: Mapped[float] = mapped_column(nullable=False)
     line: Mapped[float] = mapped_column(nullable=False)
+
+class TeamGameStats(Base):
+    """One team's totals for one game from MoneyPuck, split by situation (all / 5v5 / power play / penalty kill)."""
+    __tablename__ = "team_game_stats"
+    game_id: Mapped[int] = mapped_column(primary_key=True)
+    team_tri_code: Mapped[str] = mapped_column(primary_key=True)
+    opposing_team_tri_code: Mapped[str] = mapped_column(nullable=False)
+    season: Mapped[int] = mapped_column(nullable=False)
+    game_date: Mapped[int] = mapped_column(nullable=False)
+    home_away: Mapped[str] = mapped_column(nullable=False)
+    playoff: Mapped[bool] = mapped_column(nullable=False)
+    goals_for: Mapped[int] = mapped_column(nullable=False)
+    goals_against: Mapped[int] = mapped_column(nullable=False)
+    x_goals_for: Mapped[float] = mapped_column(nullable=False)
+    x_goals_against: Mapped[float] = mapped_column(nullable=False)
+    shot_attempts_for: Mapped[int] = mapped_column(nullable=False)
+    shot_attempts_against: Mapped[int] = mapped_column(nullable=False)
+    # 5 on 5, score- and venue-adjusted
+    x_goals_for_5v5: Mapped[float | None] = mapped_column(nullable=True)
+    x_goals_against_5v5: Mapped[float | None] = mapped_column(nullable=True)
+    shot_attempts_for_5v5: Mapped[float | None] = mapped_column(nullable=True)
+    shot_attempts_against_5v5: Mapped[float | None] = mapped_column(nullable=True)
+    goals_for_5v5: Mapped[int | None] = mapped_column(nullable=True)
+    goals_against_5v5: Mapped[int | None] = mapped_column(nullable=True)
+    pp_x_goals_for: Mapped[float | None] = mapped_column(nullable=True)
+    pp_toi: Mapped[float | None] = mapped_column(nullable=True)
+    pk_x_goals_against: Mapped[float | None] = mapped_column(nullable=True)
+    pk_toi: Mapped[float | None] = mapped_column(nullable=True)
+    last_updated: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
+
+class GameOdds(Base):
+    """Closing moneyline/total consensus for a game (median across books, vig removed), from ESPN."""
+    __tablename__ = "game_odds"
+    game_id: Mapped[int] = mapped_column(primary_key=True)
+    date: Mapped[int] = mapped_column(nullable=False)
+    home_team_tri_code: Mapped[str] = mapped_column(nullable=False)
+    away_team_tri_code: Mapped[str] = mapped_column(nullable=False)
+    home_moneyline: Mapped[float | None] = mapped_column(nullable=True)
+    away_moneyline: Mapped[float | None] = mapped_column(nullable=True)
+    home_prob_novig: Mapped[float | None] = mapped_column(nullable=True)
+    open_home_prob_novig: Mapped[float | None] = mapped_column(nullable=True)
+    total_line: Mapped[float | None] = mapped_column(nullable=True)
+    n_books: Mapped[int] = mapped_column(nullable=False, default=0)
+    books: Mapped[str | None] = mapped_column(nullable=True)
+    espn_event_id: Mapped[int | None] = mapped_column(nullable=True)
+    last_updated: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))

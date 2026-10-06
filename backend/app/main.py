@@ -7,7 +7,7 @@ from .routers import teams_router, player_router, admin_router
 from . import refresh
 from .database import AsyncSessionLocal
 from .schedules import (add_current_teams_to_db, add_old_teams_to_db, fetch_current_rosters_for_all_teams, 
-                        fetch_current_schedules_for_all_teams, fetch_all_season_schedules_for_all_teams, scrape_all_player_logs,
+                        fetch_current_schedules_for_all_teams, fetch_all_season_schedules_for_all_teams, scrape_all_player_logs, scrape_team_stats,
                         fetch_current_scores, fetch_current_player_props, nightly_pipeline)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -20,6 +20,7 @@ async def run_startup_refresh():
         ("schedules", fetch_current_schedules_for_all_teams),
         ("rosters", fetch_current_rosters_for_all_teams),
         ("player logs", scrape_all_player_logs),
+        ("team stats", scrape_team_stats),
         ("training", train_models),
     ]
     for name, step in steps:

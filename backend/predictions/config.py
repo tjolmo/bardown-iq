@@ -36,22 +36,3 @@ POISSON_PARAMS = {
     "early_stopping_rounds": 150,
 }
 GOALIE_POISSON_PARAMS = POISSON_PARAMS | {"min_child_weight": 20}
-
-# ~1.2k games a season is little data, so shallow, slow trees
-TEAM_XGB_PARAMS = {
-    "objective": "binary:logistic",
-    "tree_method": "hist",
-    "eval_metric": "logloss",
-    "n_estimators": 3000,
-    "learning_rate": 0.01,
-    "max_depth": 2,
-    "subsample": 0.8,
-    "colsample_bytree": 0.6,
-    "min_child_weight": 30,
-    "reg_lambda": 5.0,
-    "random_state": 42,
-    "early_stopping_rounds": 200,
-}
-# small logistic regression blended 50/50 with the XGBoost model (the blend beat either alone on both test seasons)
-TEAM_LOGISTIC_FEATURES = ["elo_diff", "diff_xg_pct_ewm", "diff_xg_pct_season", "diff_g_pct_ewm", "diff_gsax_ewm",
-                          "diff_rest_days", "home_rest_days", "away_rest_days"]

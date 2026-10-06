@@ -9,6 +9,8 @@ from app.crud.games import get_all_games_for_date
 from external.odds_api.dedupe import select_best_props
 from external.odds_api.player_props import get_upcoming_games_odds_api, get_player_props
 from external.moneypuck.player import scrape_all_goalie_game_logs, scrape_all_skater_game_logs
+from external.moneypuck.teams import scrape_team_game_stats
+from app.crud.team_game_stats import upsert_team_game_stats
 from external.nhl.players import fetch_and_get_players_info
 from external.nhl.teams import fetch_and_clean_team, fetch_and_clean_team_roster, fetch_and_clean_team_schedule
 from external.nhl.games import fetch_and_get_players_in_a_game, get_current_scores
@@ -19,6 +21,8 @@ from .crud.games import FINISHED_GAME_STATES, has_games_to_poll, check_if_games_
 from .crud.players import get_players_not_in_db, upsert_scraped_player, set_all_other_players_current_team_tri_code_to_null
 from .crud.skater_game_logs import upsert_scraped_game_logs
 from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
+from .crud.game_odds import upsert_game_odds, get_games_for_odds_matching
+from external.espn.game_odds import fetch_game_odds
 from app.database import AsyncSessionLocal
 import asyncio
 from external.http import gather_bounded
@@ -190,6 +194,16 @@ async def scrape_all_player_logs(seasons: list[int] | None = None):
                 all_goalies = [goalie for goalie in all_goalies if goalie.player_id not in unplaceable]
                 await upsert_scraped_goalie_game_logs(db, all_goalies)
 
+async def scrape_team_stats(seasons: list[int] | None = None):
+    """Team game totals by situation (all, 5v5, PP, PK) from MoneyPuck; the team model's strength features."""
+    if seasons is None:
+        seasons = [get_current_season_start_year()]
+    rows = await asyncio.to_thread(scrape_team_game_stats, seasons)
+    if rows is None:
+        raise RuntimeError("MoneyPuck team stats download failed")
+    async with AsyncSessionLocal() as db:
+        await upsert_team_game_stats(db, rows)
+
 async def fetch_current_scores():
     async with AsyncSessionLocal() as db:
         # the job fires every 10 minutes, but only hit the NHL API around games
@@ -262,6 +276,25 @@ async def train_models():
         await train_all_models(db)
 
 
+async def fetch_game_odds_for_range(start: datetime.date, end: datetime.date, cache_dir: str | None = None) -> int:
+    """Fetches ESPN closing odds for start..end, matches them to games in the DB and upserts them."""
+    def yyyymmdd(d: datetime.date) -> int:
+        return int(d.strftime("%Y%m%d"))
+    async with AsyncSessionLocal() as db:
+        # one day of slack on each side for ESPN events matched on a shifted date
+        games = await get_games_for_odds_matching(db, yyyymmdd(start - datetime.timedelta(days=1)), yyyymmdd(end + datetime.timedelta(days=1)))
+        # blocking threaded HTTP, so keep it off the event loop
+        rows, client = await asyncio.to_thread(fetch_game_odds, start, end, games, cache_dir)
+        await upsert_game_odds(db, rows)
+    print(f"Game odds {start}..{end}: upserted {len(rows)} games ({client.fetched} network fetches)")
+    return len(rows)
+
+async def fetch_recent_game_odds(days: int = 3):
+    """Closing lines for the last few days plus today's upcoming games (overwritten with closing lines later)."""
+    today = datetime.date.today()
+    await fetch_game_odds_for_range(today - datetime.timedelta(days=days), today)
+
+
 async def run_step(name: str, step):
     """Runs one pipeline step; a failure is logged and the pipeline moves on to the next step."""
     try:
@@ -277,9 +310,11 @@ async def nightly_pipeline():
     await run_step("schedules", fetch_current_schedules_for_all_teams)
     await run_step("rosters", fetch_current_rosters_for_all_teams)
     logs_ok = await run_step("player logs", scrape_all_player_logs)
+    logs_ok = await run_step("team stats", scrape_team_stats) and logs_ok
     if not logs_ok:
         # models trained on a partial log load would be wrong, so keep yesterday's models this run
         print("Skipping training: player log scrape failed")
+    await run_step("game odds", fetch_recent_game_odds)
     await run_step("props", fetch_current_player_props)
     if logs_ok:
         await run_step("training", train_models)
@@ -292,9 +327,11 @@ async def full_refresh():
     await run_step("schedules", fetch_current_schedules_for_all_teams)
     await run_step("rosters", fetch_current_rosters_for_all_teams)
     logs_ok = await run_step("player logs", scrape_all_player_logs)
+    logs_ok = await run_step("team stats", scrape_team_stats) and logs_ok
     if not logs_ok:
         print("Skipping training: player log scrape failed")
     await run_step("scores", fetch_current_scores)
+    await run_step("game odds", fetch_recent_game_odds)
     await run_step("props", fetch_current_player_props)
     if logs_ok:
         await run_step("training", train_models)

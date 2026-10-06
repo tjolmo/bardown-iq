@@ -7,7 +7,7 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 from . import features as F
 from .config import SKATER_BUNDLE, GOALIE_BUNDLE, TEAM_BUNDLE, SKATER_TARGETS, GOALIE_TARGETS, GOALIE_TREND_TARGETS
-from .data import load_skater_logs, load_goalie_logs, load_team_offense, load_games
+from .data import load_skater_logs, load_goalie_logs, load_team_stats, load_games
 
 _bundles: dict = {}
 
@@ -47,18 +47,18 @@ def _placeholder_team_rows(games: pd.DataFrame) -> pd.DataFrame:
                          "game_date": g.date, "is_home": is_home})
     return pd.DataFrame(rows)
 
-def _build_context(team_offense: pd.DataFrame, games: pd.DataFrame, team_mtime) -> dict:
-    placeholders = _placeholder_games(games, set(team_offense["game_id"]))
-    team_feats = F.team_history_features(
-        F.build_team_games(pd.concat([team_offense, _placeholder_team_rows(placeholders)], ignore_index=True)))
+def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.DataFrame, team_mtime) -> dict:
+    placeholders = _placeholder_games(games, set(team_stats["game_id"]))
+    team_games = F.build_team_games(pd.concat([team_stats, _placeholder_team_rows(placeholders)], ignore_index=True))
+    team_feats = F.team_history_features(team_games)
     win_probs: dict[int, float] = {}
     if team_mtime is not None:
         bundle = load_bundle(TEAM_BUNDLE)
-        frame = F.build_team_model_frame(games, team_feats)
+        starters = F.starter_features(team_games, goalies) if not goalies.empty else None
+        frame = F.build_team_model_frame(games, team_feats, starters)
         frame = frame[frame["home_score"].isna() & (frame["date"] >= _today()) & frame["home_games_season"].notna()]
         if not frame.empty:
-            p = (bundle["xgb"].predict_proba(frame[bundle["features"]].astype(np.float32))[:, 1]
-                 + bundle["logistic"].predict_proba(frame[bundle["logistic_features"]])[:, 1]) / 2
+            p = bundle["model"].predict_proba(frame[bundle["features"]])[:, 1]
             win_probs = dict(zip(frame["game_id"].astype(int), p.astype(float)))
     return {"team_feats": team_feats, "win_probs": win_probs, "placeholders": placeholders}
 
@@ -68,12 +68,13 @@ async def _team_context(db: AsyncSession) -> dict:
         team_mtime = TEAM_BUNDLE.stat().st_mtime if TEAM_BUNDLE.exists() else None
         if time.monotonic() - _context["built_at"] < CONTEXT_TTL_SECONDS and _context.get("team_mtime") == team_mtime:
             return _context
-        team_offense = await load_team_offense(db)
+        team_stats = await load_team_stats(db)
         games = await load_games(db)
-        if team_offense.empty or games.empty:
-            raise LookupError("No game logs or games in the DB to predict from")
-        # the Elo loop and groupbys take a moment, so keep them off the event loop
-        built = await asyncio.to_thread(_build_context, team_offense, games, team_mtime)
+        if team_stats.empty or games.empty:
+            raise LookupError("No team stats or games in the DB to predict from")
+        goalies = await load_goalie_logs(db)
+        # the Elo loop, starter guesses and groupbys take a moment, so keep them off the event loop
+        built = await asyncio.to_thread(_build_context, team_stats, games, goalies, team_mtime)
         _context.update(built, built_at=time.monotonic(), team_mtime=team_mtime)
         return _context
 

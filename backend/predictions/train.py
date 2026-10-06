@@ -11,32 +11,35 @@ from sklearn.metrics import log_loss, mean_poisson_deviance, roc_auc_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sqlalchemy.ext.asyncio import AsyncSession
-from xgboost import XGBClassifier, XGBRegressor
+from xgboost import XGBRegressor
 from . import features as F
 from .config import (
     SKATER_BUNDLE, GOALIE_BUNDLE, TEAM_BUNDLE, METRICS_PATH, SKATER_TARGETS, GOALIE_TARGETS, GOALIE_TREND_TARGETS,
-    VALIDATION_FRACTION, POISSON_PARAMS, GOALIE_POISSON_PARAMS, TEAM_XGB_PARAMS, TEAM_LOGISTIC_FEATURES,
+    VALIDATION_FRACTION, POISSON_PARAMS, GOALIE_POISSON_PARAMS,
 )
-from .data import load_skater_logs, load_goalie_logs, load_team_offense, load_games
+from .data import load_skater_logs, load_goalie_logs, load_team_stats, load_games, load_game_odds
 
 async def train_all_models(db: AsyncSession) -> dict:
     skaters = await load_skater_logs(db)
     goalies = await load_goalie_logs(db)
-    team_offense = await load_team_offense(db)
+    team_stats = await load_team_stats(db)
     games = await load_games(db)
-    if skaters.empty or games.empty:
-        print("No training data found. Make sure game logs and games are populated.")
+    odds = await load_game_odds(db)
+    if skaters.empty or games.empty or team_stats.empty:
+        print("No training data found. Make sure game logs, team stats and games are populated.")
         return {}
     # CPU-bound fitting runs in a worker thread so the event loop (API + scheduler) stays responsive
-    return await asyncio.to_thread(_fit_all, skaters, goalies, team_offense, games)
+    return await asyncio.to_thread(_fit_all, skaters, goalies, team_stats, games, odds)
 
-def _fit_all(skaters, goalies, team_offense, games) -> dict:
-    team_feats = F.team_history_features(F.build_team_games(team_offense))
+def _fit_all(skaters, goalies, team_stats, games, odds) -> dict:
+    team_games = F.build_team_games(team_stats)
+    team_feats = F.team_history_features(team_games)
     metrics = {"trained_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     metrics["skaters"] = _fit_skaters(skaters, team_feats)
     if not goalies.empty:
         metrics["goalies"] = _fit_goalies(goalies, team_feats)
-    metrics["teams"] = _fit_teams(games, team_feats)
+    starters = F.starter_features(team_games, goalies) if not goalies.empty else None
+    metrics["teams"] = _fit_teams(games, team_feats, starters, odds)
     METRICS_PATH.write_text(json.dumps(metrics, indent=1))
     return metrics
 
@@ -126,8 +129,8 @@ def _fit_goalies(goalies: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
 def _team_logistic():
     return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), LogisticRegression(max_iter=1000))
 
-def _fit_teams(games: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
-    df = F.build_team_model_frame(games, team_feats)
+def _fit_teams(games: pd.DataFrame, team_feats: pd.DataFrame, starters, odds: pd.DataFrame) -> dict:
+    df = F.build_team_model_frame(games, team_feats, starters)
     regular = df["game_id"] // 10000 % 100 == 2
     df = df[regular & df["home_win"].notna() & df["home_games_season"].notna()].copy()
     df["date"] = pd.to_datetime(df["date"].astype(str), format="%Y%m%d")
@@ -136,28 +139,25 @@ def _fit_teams(games: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
     cols = F.TEAM_FEATURE_COLUMNS
 
     print("Training team win model")
-    xgb = XGBClassifier(**TEAM_XGB_PARAMS)
-    xgb.fit(train[cols].astype(np.float32), train["home_win"],
-            eval_set=[(valid[cols].astype(np.float32), valid["home_win"])], verbose=False)
-    logistic = _team_logistic().fit(train[TEAM_LOGISTIC_FEATURES], train["home_win"])
-    p = (xgb.predict_proba(valid[cols].astype(np.float32))[:, 1]
-         + logistic.predict_proba(valid[TEAM_LOGISTIC_FEATURES])[:, 1]) / 2
+    p = _team_logistic().fit(train[cols], train["home_win"]).predict_proba(valid[cols])[:, 1]
     y = valid["home_win"].to_numpy()
     metrics = {
-        "train_rows": len(train), "valid_rows": len(valid), "trees": xgb.best_iteration + 1,
+        "train_rows": len(train), "valid_rows": len(valid),
         "logloss": round(float(log_loss(y, p)), 4), "auc": round(float(roc_auc_score(y, p)), 4),
         "accuracy": round(float(np.mean((p > 0.5) == y)), 4),
         "baseline_home_rate_logloss": round(float(log_loss(y, np.full(len(y), train["home_win"].mean()))), 4),
         "baseline_elo_logloss": round(float(log_loss(y, valid["elo_prob"])), 4),
     }
-    print(f"  {'win':>15s}  logloss={metrics['logloss']:.4f}  AUC={metrics['auc']:.4f}  acc={metrics['accuracy']:.3f}  "
-          f"home_rate={metrics['baseline_home_rate_logloss']:.4f}  elo={metrics['baseline_elo_logloss']:.4f}")
+    # the betting market's closing line is the benchmark to chase (public-data models rarely beat it)
+    with_odds = valid.reset_index(drop=True).assign(p=p).merge(odds[["game_id", "home_prob_novig"]].dropna(), on="game_id")
+    if len(with_odds) >= 100:
+        metrics["market_games"] = len(with_odds)
+        metrics["market_logloss"] = round(float(log_loss(with_odds["home_win"], with_odds["home_prob_novig"])), 4)
+        metrics["model_logloss_on_market_games"] = round(float(log_loss(with_odds["home_win"], with_odds["p"])), 4)
+    print("  " + "  ".join(f"{k}={v}" for k, v in metrics.items()))
 
-    final_xgb = XGBClassifier(**(TEAM_XGB_PARAMS | {"n_estimators": metrics["trees"], "early_stopping_rounds": None}))
-    final_xgb.fit(df[cols].astype(np.float32), df["home_win"], verbose=False)
-    final_logistic = _team_logistic().fit(df[TEAM_LOGISTIC_FEATURES], df["home_win"])
-    _save({"xgb": final_xgb, "logistic": final_logistic, "features": cols,
-                 "logistic_features": TEAM_LOGISTIC_FEATURES}, TEAM_BUNDLE)
+    final = _team_logistic().fit(df[cols], df["home_win"])
+    _save({"model": final, "features": cols}, TEAM_BUNDLE)
     return metrics
 
 async def _main():

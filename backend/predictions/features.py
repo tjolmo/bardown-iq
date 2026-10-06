@@ -72,15 +72,13 @@ def latest_league_trend(df: pd.DataFrame, target: str) -> float:
 
 # ---------- team level ----------
 
-TEAM_STATS = ["gf", "ga", "xgf", "xga", "saf", "saa", "hdf", "hda"]
+# all-situation totals plus 5v5 score/venue-adjusted ones (from the team_game_stats table)
+TEAM_STATS = ["gf", "ga", "xgf", "xga", "saf", "saa", "xgf5", "xga5", "cf5", "ca5", "gf5", "ga5"]
 
-def build_team_games(team_for: pd.DataFrame) -> pd.DataFrame:
-    """`team_for` has one row per (game_id, team) with that team's offensive totals (gf, xgf, saf, hdf)
-    plus opponent, season, game_date, is_home. Adds the matching "against" columns from the opponent's row."""
-    against = team_for[["game_id", "team", "gf", "xgf", "saf", "hdf"]].rename(
-        columns={"team": "opponent", "gf": "ga", "xgf": "xga", "saf": "saa", "hdf": "hda"}
-    )
-    out = team_for.merge(against, on=["game_id", "opponent"], how="left")
+def build_team_games(team_stats: pd.DataFrame) -> pd.DataFrame:
+    """`team_stats` has one row per (game_id, team): opponent, season, game_date, is_home and TEAM_STATS
+    (NaN for upcoming games). Adds a date column and sorts each team's games chronologically."""
+    out = team_stats.copy()
     out["date"] = _date(out["game_date"])
     return out.sort_values(["team", "date", "game_id"]).reset_index(drop=True)
 
@@ -90,13 +88,16 @@ def team_history_features(team_games: pd.DataFrame) -> pd.DataFrame:
     feats = _prior_features(tg, "team", TEAM_STATS, prefix="team_")
     keep = [c for c in feats.columns if c.endswith(("_ewm", "_season")) or c == "team_games_season"]
     feats = feats[keep]
+    pct = lambda a, b: a / (a + b)
     for window in ("ewm", "season"):
-        xgf, xga = feats[f"team_xgf_{window}"], feats[f"team_xga_{window}"]
-        gf, ga = feats[f"team_gf_{window}"], feats[f"team_ga_{window}"]
-        feats[f"team_xg_pct_{window}"] = xgf / (xgf + xga)
-        feats[f"team_g_pct_{window}"] = gf / (gf + ga)
+        f = lambda s: feats[f"team_{s}_{window}"]
+        feats[f"team_xg_pct_{window}"] = pct(f("xgf"), f("xga"))
+        feats[f"team_g_pct_{window}"] = pct(f("gf"), f("ga"))
         # goaltending + finishing luck: actual goals against minus expected
-        feats[f"team_gsax_{window}"] = feats[f"team_xga_{window}"] - feats[f"team_ga_{window}"]
+        feats[f"team_gsax_{window}"] = f("xga") - f("ga")
+        # even strength, adjusted for score effects and venue: the steadiest read of team quality
+        feats[f"team_xg5_pct_{window}"] = pct(f("xgf5"), f("xga5"))
+        feats[f"team_cf5_pct_{window}"] = pct(f("cf5"), f("ca5"))
     feats["team_rest_days"] = _rest_days(tg, "team")
     feats["game_id"] = tg["game_id"].values
     feats["team"] = tg["team"].values
@@ -132,34 +133,85 @@ def elo_ratings(games: pd.DataFrame, k: float = 8.0, home_adv: float = 35.0, car
         ratings[away] = ra - delta
     return pd.DataFrame(rows, columns=["game_id", "home_elo", "away_elo"])
 
-TEAM_MODEL_SIDE_FEATURES = [
-    "team_xgf_ewm", "team_xga_ewm", "team_gf_ewm", "team_ga_ewm", "team_saf_ewm", "team_saa_ewm",
-    "team_xg_pct_ewm", "team_xg_pct_season", "team_g_pct_ewm", "team_g_pct_season",
-    "team_gsax_ewm", "team_gsax_season", "team_games_season", "team_rest_days",
-]
+# ---------- starting goalies ----------
 
-def build_team_model_frame(games: pd.DataFrame, team_feats: pd.DataFrame) -> pd.DataFrame:
+GOALIE_PRIOR_HOURS = 25.0     # shrink a goalie's GSAx rate toward league average with ~25 games of prior
+STARTER_LOOKBACK = 10         # team games used to guess the starter
+
+def actual_starters(goalies: pd.DataFrame) -> pd.DataFrame:
+    """The goalie who played the most in each team-game."""
+    s = goalies.loc[goalies["toi"] == goalies.groupby(["game_id", "team"])["toi"].transform("max")]
+    return s.drop_duplicates(["game_id", "team"])[["game_id", "team", "player_id"]]
+
+def projected_starters(team_games: pd.DataFrame, starters: pd.DataFrame) -> pd.DataFrame:
+    """A pre-game guess of each team's starter from the schedule alone: the goalie with the most starts in the
+    team's last 10 games, or the most-used other goalie on the second night of a back-to-back.
+    Right ~65% of the time; using the real starter instead only improved the win model marginally."""
+    tg = team_games[["game_id", "team", "date"]].merge(starters, on=["game_id", "team"], how="left")
+    tg = tg.sort_values(["team", "date", "game_id"])
+    out = []
+    for team, grp in tg.groupby("team", sort=False):
+        history: list = []
+        prev_date, prev_starter = None, None
+        for gid, date, starter in zip(grp["game_id"], grp["date"], grp["player_id"]):
+            counts = pd.Series(history[-STARTER_LOOKBACK:]).value_counts() if history else None
+            pick = counts.index[0] if counts is not None else np.nan
+            if prev_date is not None and (date - prev_date).days <= 1 and pick == prev_starter and len(counts) > 1:
+                pick = counts.index[1]
+            out.append((gid, team, pick))
+            if not pd.isna(starter):
+                history.append(starter)
+            prev_date, prev_starter = date, starter
+    return pd.DataFrame(out, columns=["game_id", "team", "player_id"])
+
+def goalie_quality(goalies: pd.DataFrame) -> pd.DataFrame:
+    """Each goalie's goals saved above expected per 60 (shrunk) *after* each game date; looked up strictly
+    before a game it is that goalie's pre-game quality."""
+    g = goalies.assign(date=_date(goalies["game_date"]), gsax=goalies["x_goals_against"] - goalies["goals_against"])
+    g = g.sort_values(["player_id", "date", "game_id"])
+    by = g.groupby("player_id", sort=False)
+    out = pd.DataFrame({"player_id": g["player_id"], "date": g["date"]})
+    out["gsax60"] = by["gsax"].cumsum() / (by["toi"].cumsum() / 3600 + GOALIE_PRIOR_HOURS)
+    return out.drop_duplicates(["player_id", "date"], keep="last").sort_values("date")
+
+def starter_features(team_games: pd.DataFrame, goalies: pd.DataFrame) -> pd.DataFrame:
+    """Projected starter's pre-game quality for every (game_id, team) in `team_games`."""
+    picks = projected_starters(team_games, actual_starters(goalies))
+    picks = picks.merge(team_games[["game_id", "team", "date"]], on=["game_id", "team"]).dropna(subset=["player_id"])
+    picks["player_id"] = picks["player_id"].astype("int64")
+    looked = pd.merge_asof(picks.sort_values("date"), goalie_quality(goalies), on="date", by="player_id",
+                           allow_exact_matches=False)
+    return looked[["game_id", "team", "gsax60"]].rename(columns={"gsax60": "starter_gsax60"})
+
+# ---------- team model frame ----------
+
+TEAM_MODEL_SIDE_FEATURES = ["team_xg_pct_ewm", "team_xg_pct_season", "team_g_pct_ewm", "team_gsax_ewm",
+                            "team_xg5_pct_ewm", "team_xg5_pct_season", "team_games_season", "team_rest_days"]
+
+def build_team_model_frame(games: pd.DataFrame, team_feats: pd.DataFrame, starters: pd.DataFrame | None = None) -> pd.DataFrame:
     """One row per game from the home team's perspective, with home_*, away_* and difference features.
     `games` needs id, season, date, home/away tri codes, home/away scores (NaN for unplayed games)."""
     elo = elo_ratings(games)
     df = games.rename(columns={"id": "game_id"}).merge(elo, on="game_id", how="left")
     side = team_feats[["game_id", "team"] + TEAM_MODEL_SIDE_FEATURES]
+    if starters is not None:
+        side = side.merge(starters, on=["game_id", "team"], how="left")
     for prefix, col in (("home_", "home_team_tri_code"), ("away_", "away_team_tri_code")):
-        renamed = side.rename(columns={c: prefix + c.removeprefix("team_") for c in TEAM_MODEL_SIDE_FEATURES})
+        renamed = side.rename(columns={c: prefix + c.removeprefix("team_") for c in side.columns if c not in ("game_id", "team")})
         df = df.merge(renamed.rename(columns={"team": col}), on=["game_id", col], how="left")
     df["elo_diff"] = df["home_elo"] + 35.0 - df["away_elo"]
     df["elo_prob"] = 1.0 / (1.0 + 10 ** (-df["elo_diff"] / 400.0))
-    for stat in ("xg_pct_ewm", "xg_pct_season", "g_pct_ewm", "gsax_ewm", "rest_days"):
-        df[f"diff_{stat}"] = df[f"home_{stat}"] - df[f"away_{stat}"]
+    for stat in ("xg_pct_ewm", "xg_pct_season", "g_pct_ewm", "gsax_ewm", "rest_days", "xg5_pct_ewm", "xg5_pct_season",
+                 "starter_gsax60"):
+        if f"home_{stat}" in df:
+            df[f"diff_{stat}"] = df[f"home_{stat}"] - df[f"away_{stat}"]
     df["home_win"] = np.where(df["home_score"].notna(), (df["home_score"] > df["away_score"]).astype(float), np.nan)
     return df
 
-TEAM_FEATURE_COLUMNS = (
-    ["home_elo", "away_elo", "elo_diff"]
-    + ["home_" + c.removeprefix("team_") for c in TEAM_MODEL_SIDE_FEATURES]
-    + ["away_" + c.removeprefix("team_") for c in TEAM_MODEL_SIDE_FEATURES]
-    + ["diff_xg_pct_ewm", "diff_xg_pct_season", "diff_g_pct_ewm", "diff_gsax_ewm", "diff_rest_days"]
-)
+# logistic regression inputs; on four test seasons this beat an XGBoost model and a blend of the two
+TEAM_FEATURE_COLUMNS = ["elo_diff", "diff_xg_pct_ewm", "diff_xg_pct_season", "diff_g_pct_ewm", "diff_gsax_ewm",
+                        "diff_rest_days", "home_rest_days", "away_rest_days", "diff_xg5_pct_season", "diff_xg5_pct_ewm",
+                        "diff_starter_gsax60"]
 
 # ---------- opponent / own-team context shared by player models ----------
 

@@ -64,9 +64,14 @@ def load_raw(data: Path):
     return sk, go, games
 
 def team_offense(sk: pd.DataFrame) -> pd.DataFrame:
-    return (sk.groupby(["game_id", "team", "opponent", "season", "game_date", "is_home"], as_index=False)
-              .agg(gf=("goals", "sum"), xgf=("x_goals", "sum"), saf=("shot_attempts", "sum"),
-                   hdf=("high_danger_shots", "sum")))
+    """Team totals summed from skaters (the setup this comparison was run with; 5v5 columns aren't available here)."""
+    off = (sk.groupby(["game_id", "team", "opponent", "season", "game_date", "is_home"], as_index=False)
+             .agg(gf=("goals", "sum"), xgf=("x_goals", "sum"), saf=("shot_attempts", "sum")))
+    against = off[["game_id", "team", "gf", "xgf", "saf"]].rename(columns={"team": "opponent", "gf": "ga", "xgf": "xga", "saf": "saa"})
+    off = off.merge(against, on=["game_id", "opponent"], how="left")
+    for c in ("xgf5", "xga5", "cf5", "ca5", "gf5", "ga5"):
+        off[c] = np.nan
+    return off
 
 # ---------- metrics ----------
 
