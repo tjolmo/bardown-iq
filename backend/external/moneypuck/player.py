@@ -2,7 +2,13 @@ import pandas as pd
 from .response_models import SkaterGameLogResponse, GoalieGameLogResponse
 import zipfile
 import io
+import logging
 import requests
+
+logger = logging.getLogger(__name__)
+
+# (connect, read) seconds; the season zips are a few MB so reads can be slow but not unbounded
+DOWNLOAD_TIMEOUT = (10, 120)
 
 TRICODE_MAP = {
     "T.B": "TBL",
@@ -10,6 +16,12 @@ TRICODE_MAP = {
     "N.J": "NJD",
     "L.A": "LAK",
 }
+
+def _download_season_zip(url: str) -> io.BytesIO:
+    """Downloads a season zip, raising on timeouts and non-2xx responses (so an HTML error page is never treated as a zip)."""
+    response = requests.get(url, timeout=DOWNLOAD_TIMEOUT)
+    response.raise_for_status()
+    return io.BytesIO(response.content)
 
 # fixes issue with older gamelogs now being scraped
 def _normalize_tricodes(df: pd.DataFrame) -> pd.DataFrame:
@@ -104,7 +116,7 @@ def scrape_all_skater_game_logs(season: int) -> list[SkaterGameLogResponse] | No
     ]
     # download the zip file and unpack the csv
     try:
-        csv_data = io.BytesIO(requests.get(csv_url).content)
+        csv_data = _download_season_zip(csv_url)
         with zipfile.ZipFile(csv_data) as z:
             with z.open(f"{season}.csv") as f:
                 df = pd.read_csv(f, usecols=cols)
@@ -112,7 +124,7 @@ def scrape_all_skater_game_logs(season: int) -> list[SkaterGameLogResponse] | No
                 filtered = _normalize_tricodes(filtered)
             return [SkaterGameLogResponse.model_validate(row) for row in filtered.to_dict("records")]
     except Exception as e:
-        print(f"Error loading data: {e}")
+        logger.error("Failed to load MoneyPuck %s data for season %s from %s: %s", "skater", season, csv_url, e)
         return None
 
 def scrape_all_goalie_game_logs(season: int) -> list[GoalieGameLogResponse] | None:
@@ -131,7 +143,7 @@ def scrape_all_goalie_game_logs(season: int) -> list[GoalieGameLogResponse] | No
     ]
     # download the zip file and unpack the csv
     try:
-        csv_data = io.BytesIO(requests.get(csv_url).content)
+        csv_data = _download_season_zip(csv_url)
         with zipfile.ZipFile(csv_data) as z:
             with z.open(f"{season}.csv") as f:
                 df = pd.read_csv(f, usecols=cols)
@@ -139,5 +151,5 @@ def scrape_all_goalie_game_logs(season: int) -> list[GoalieGameLogResponse] | No
                 filtered = _normalize_tricodes(filtered)
             return [GoalieGameLogResponse.model_validate(row) for row in filtered.to_dict("records")]
     except Exception as e:
-        print(f"Error loading data: {e}")
+        logger.error("Failed to load MoneyPuck %s data for season %s from %s: %s", "goalie", season, csv_url, e)
         return None

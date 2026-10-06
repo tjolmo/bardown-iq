@@ -4,6 +4,7 @@ from app.schemas.player import PlayerPropOut
 from app.crud.players import get_player_by_name_and_roster_options
 from app.crud.teams import search_teams_by_name
 from app.crud.games import get_all_games_for_date
+from external.odds_api.dedupe import select_best_props
 from external.odds_api.player_props import get_upcoming_games_odds_api, get_player_props
 from app.crud.goalie_game_features import update_goalie_game_features
 from app.crud.skater_game_features import update_skater_game_features
@@ -20,6 +21,7 @@ from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
 from app.database import AsyncSessionLocal
 from app.crud.team_game_logs import build_team_game_logs
 from app.crud.team_game_features import update_team_game_features
+import asyncio
 import datetime
 
 CURRENT_TEAMS = [
@@ -54,16 +56,16 @@ async def add_old_teams_to_db():
 async def fetch_current_rosters_for_all_teams():
     async with AsyncSessionLocal() as db:
         tri_codes = await get_all_tri_codes_update_roster(db)
-        tri_codes = await get_all_tri_codes_in_db(db)
-        players_updated = []
         for tri_code in tri_codes:
             roster_data = await fetch_and_clean_team_roster(tri_code, "current")
             if roster_data:
                 for player in roster_data:
                     await upsert_scraped_player(db, player, tri_code)
-                    players_updated.append(player.id)
+                # only clear players previously on this team who are no longer on its roster
+                await set_all_other_players_current_team_tri_code_to_null(
+                    db, tri_code, [player.id for player in roster_data]
+                )
                 await update_team_roster_last_updated(db, tri_code)
-        await set_all_other_players_current_team_tri_code_to_null(db, players_updated)
         
 async def fetch_current_schedules_for_all_teams():
     async with AsyncSessionLocal() as db:
@@ -120,40 +122,48 @@ async def update_daily_features():
         await build_team_game_logs(db)
         await update_team_game_features(db)
 
-async def scrape_all_player_logs(seasons:list[int]):
+def get_current_season_start_year(today: datetime.date | None = None) -> int:
+    """Start year of the NHL season in progress (MoneyPuck's `season` value), e.g. 2025 for 2025-26.
+    The season rolls over on Sept 1, after the prior season's playoffs end and before preseason."""
+    today = today or datetime.date.today()
+    return today.year if today.month >= 9 else today.year - 1
+
+async def add_missing_players(db, player_ids: set[int]) -> set[int]:
+    """Fetches and stores players not yet in the DB. Returns the ids whose info could not be fetched."""
+    failed: set[int] = set()
+    for player_id in await get_players_not_in_db(db, list(player_ids)):
+        player_info = await fetch_and_get_players_info(player_id)
+        if player_info:
+            await upsert_scraped_player(db, player_info, None)
+        else:
+            failed.add(player_id)
+    if failed:
+        print(f"Could not fetch info for {len(failed)} players; skipping their game logs: {sorted(failed)}")
+    return failed
+
+async def scrape_all_player_logs(seasons: list[int] | None = None):
+    # resolve at run time so a long-running scheduler follows the calendar
+    if seasons is None:
+        seasons = [get_current_season_start_year()]
     async with AsyncSessionLocal() as db:
         for season in seasons:
-            all_skaters = scrape_all_skater_game_logs(season)
+            # blocking download + pandas parse, so keep it off the event loop
+            all_skaters = await asyncio.to_thread(scrape_all_skater_game_logs, season)
             if all_skaters:
-                # get unique player ids
-                player_ids = [skater.player_id for skater in all_skaters]
-                unique_player_ids = list(set(player_ids))
-                missing_players = await get_players_not_in_db(db, unique_player_ids)
-                for player in missing_players:
-                    player_info = await fetch_and_get_players_info(player)
-                    if player_info:
-                        await upsert_scraped_player(db, player_info, None)
-                    else:
-                        # remove from all_skaters
-                        all_skaters = [skater for skater in all_skaters if skater.player_id != player]
+                unplaceable = await add_missing_players(db, {skater.player_id for skater in all_skaters})
+                # drop logs for players we couldn't fetch (single pass)
+                all_skaters = [skater for skater in all_skaters if skater.player_id not in unplaceable]
                 await upsert_scraped_game_logs(db, all_skaters)
-            all_goalies = scrape_all_goalie_game_logs(season) 
+            all_goalies = await asyncio.to_thread(scrape_all_goalie_game_logs, season)
             if all_goalies:
-                player_ids = [goalie.player_id for goalie in all_goalies]
-                unique_player_ids = list(set(player_ids))
-                missing_players = await get_players_not_in_db(db, unique_player_ids)
-                for player in missing_players:
-                    player_info = await fetch_and_get_players_info(player)
-                    if player_info:
-                        await upsert_scraped_player(db, player_info, None)
-                    else:
-                        # remove from all_goalies
-                        all_goalies = [goalie for goalie in all_goalies if goalie.player_id != player]
+                unplaceable = await add_missing_players(db, {goalie.player_id for goalie in all_goalies})
+                all_goalies = [goalie for goalie in all_goalies if goalie.player_id not in unplaceable]
                 await upsert_scraped_goalie_game_logs(db, all_goalies)
 
 async def fetch_current_scores():
     async with AsyncSessionLocal() as db:
-        scores = await get_current_scores()
+        tri_codes = set(await get_all_tri_codes_in_db(db))
+        scores = await get_current_scores(tri_codes)
         await upsert_scraped_games_from_schedule(db, scores)
 
 async def fetch_current_player_props():
@@ -208,12 +218,8 @@ async def fetch_current_player_props():
                 ))
             
             if len(props_to_upsert) > 0:
-                # remove duplicates
-                seen = {}
-                for prop in props_to_upsert:
-                    key = (prop.game_id, prop.player_id, prop.prop_type, prop.over_under)
-                    seen[key] = prop
-                await upsert_player_props(db, list(seen.values()))
+                # same prop from several bookmakers: keep consensus line at the best price
+                await upsert_player_props(db, select_best_props(props_to_upsert))
                 
 async def train_models():
     async with AsyncSessionLocal() as db:

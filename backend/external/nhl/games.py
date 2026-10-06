@@ -78,7 +78,14 @@ async def get_odds_for_current_games() -> list[GameOdds] | None:
             _odds_cache = (time.monotonic(), odds)
         return odds
 
-async def get_current_scores() -> list[GameResponse]:
+# regular season (2) and playoffs (3); the schedule scraper already drops preseason (1)
+SCORE_GAME_TYPES = (2, 3)
+
+async def get_current_scores(valid_tri_codes: set[str] | None = None) -> list[GameResponse] | None:
+    """Fetches today's games and scores. Games are validated one by one so a single bad
+    game is skipped instead of failing the batch. Non regular-season/playoff games are dropped,
+    and so are games whose teams are not in valid_tri_codes (when given), since they would
+    violate the games -> teams foreign key."""
     base_url = "https://api-web.nhle.com/v1/score/now"
     async with httpx.AsyncClient() as client:
         try:
@@ -91,6 +98,22 @@ async def get_current_scores() -> list[GameResponse]:
         except Exception as e:
             print(f"Error scraping scores: {e}")
             return None
-        
-        print(games)
-        return [GameResponse(**game) for game in games]
+
+    parsed = []
+    for game in games:
+        if game.get("gameType") not in SCORE_GAME_TYPES:
+            continue
+        try:
+            parsed_game = GameResponse(**game)
+        except Exception as e:
+            print(f"Skipping game {game.get('id')} in scores, failed validation: {e}")
+            continue
+        if valid_tri_codes is not None and (
+            parsed_game.home_team_tri_code not in valid_tri_codes
+            or parsed_game.away_team_tri_code not in valid_tri_codes
+        ):
+            print(f"Skipping game {parsed_game.id} in scores, team not in DB: "
+                  f"{parsed_game.away_team_tri_code} @ {parsed_game.home_team_tri_code}")
+            continue
+        parsed.append(parsed_game)
+    return parsed or None
