@@ -16,7 +16,7 @@ from external.nhl.teams import fetch_and_clean_team, fetch_and_clean_team_roster
 from external.nhl.games import fetch_and_get_players_in_a_game, get_current_scores
 from .crud.team_history import upsert_team_history, check_team_history_exists_and_updated
 from .crud.teams import get_all_tri_codes_in_db, upsert_team,update_team_roster_last_updated, get_all_tri_codes_update_roster
-from .crud.games import check_if_games_in_db, upsert_scraped_games_from_schedule, delete_future_games_not_in
+from .crud.games import has_games_to_poll, check_if_games_in_db, upsert_scraped_games_from_schedule, delete_future_games_not_in
 from .crud.players import get_players_not_in_db, upsert_scraped_player, set_all_other_players_current_team_tri_code_to_null
 from .crud.skater_game_logs import upsert_scraped_game_logs
 from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
@@ -161,6 +161,9 @@ async def scrape_all_player_logs(seasons: list[int] | None = None):
 
 async def fetch_current_scores():
     async with AsyncSessionLocal() as db:
+        # the job fires every 10 minutes, but only hit the NHL API around games
+        if not await has_games_to_poll(db):
+            return
         tri_codes = set(await get_all_tri_codes_in_db(db))
         scores = await get_current_scores(tri_codes)
         await upsert_scraped_games_from_schedule(db, scores)
