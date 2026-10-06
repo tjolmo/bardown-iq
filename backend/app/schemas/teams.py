@@ -55,7 +55,7 @@ class TeamSearchResultOut(BaseModel):
 class TeamSidePrediction(BaseModel):
     """Prediction details for one side (home or away) of a game"""
     tri_code: str
-    prob_win: float
+    prob_win: float | None = None
 
 class TeamGamePredictionOut(BaseModel):
     """Output model for game-level predictions (both teams)"""
