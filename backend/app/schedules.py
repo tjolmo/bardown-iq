@@ -24,6 +24,7 @@ from app.database import AsyncSessionLocal
 from app.crud.team_game_logs import build_team_game_logs
 from app.crud.team_game_features import update_team_game_features
 import asyncio
+from external.http import gather_bounded
 import datetime
 
 CURRENT_TEAMS = [
@@ -58,8 +59,9 @@ async def add_old_teams_to_db():
 async def fetch_current_rosters_for_all_teams():
     async with AsyncSessionLocal() as db:
         tri_codes = await get_all_tri_codes_update_roster(db)
-        for tri_code in tri_codes:
-            roster_data = await fetch_and_clean_team_roster(tri_code, "current")
+        # fetch all rosters concurrently; DB writes stay sequential (one session)
+        rosters = await gather_bounded([fetch_and_clean_team_roster(tri_code, "current") for tri_code in tri_codes])
+        for tri_code, roster_data in zip(tri_codes, rosters):
             if roster_data:
                 for player in roster_data:
                     await upsert_scraped_player(db, player, tri_code)
@@ -72,9 +74,10 @@ async def fetch_current_rosters_for_all_teams():
 async def fetch_current_schedules_for_all_teams():
     async with AsyncSessionLocal() as db:
         tri_codes = await get_all_tri_codes_in_db(db)
-        for tri_code in tri_codes:
-            # Always refetch: postponements, new start times and newly added games are only visible in the fetched schedule.
-            schedule_data = await fetch_and_clean_team_schedule(tri_code, "now")
+        # fetch all team schedules concurrently, then write sequentially (one session)
+        # Always refetch: postponements, new start times and newly added games are only visible in the fetched schedule.
+        schedules = await gather_bounded([fetch_and_clean_team_schedule(tri_code, "now") for tri_code in tri_codes])
+        for tri_code, schedule_data in zip(tri_codes, schedules):
             if schedule_data:
                 # upsert first so a failed fetch/insert never leaves the team without games
                 await upsert_scraped_games_from_schedule(db, schedule_data)
@@ -130,8 +133,10 @@ def get_current_season_start_year(today: datetime.date | None = None) -> int:
 async def add_missing_players(db, player_ids: set[int]) -> set[int]:
     """Fetches and stores players not yet in the DB. Returns the ids whose info could not be fetched."""
     failed: set[int] = set()
-    for player_id in await get_players_not_in_db(db, list(player_ids)):
-        player_info = await fetch_and_get_players_info(player_id)
+    missing_ids = await get_players_not_in_db(db, list(player_ids))
+    # fetch concurrently; DB writes stay sequential (one session)
+    player_infos = await gather_bounded([fetch_and_get_players_info(player_id) for player_id in missing_ids])
+    for player_id, player_info in zip(missing_ids, player_infos):
         if player_info:
             await upsert_scraped_player(db, player_info, None)
         else:
