@@ -1,8 +1,10 @@
 from predictions.train import train_team_classifiers, train_goalie_models, train_skater_classifiers, train_skater_models
 from app.crud.props import upsert_player_props
 from app.schemas.player import PlayerPropOut
-from app.crud.players import get_player_by_name_and_roster_options
-from app.crud.teams import search_teams_by_name
+from app.crud.players import get_players_on_teams
+from app.player_matching import index_players_by_name, match_player
+from app.crud.teams import get_all_teams
+from app.name_matching import normalize_name
 from app.crud.games import get_all_games_for_date
 from external.odds_api.dedupe import select_best_props
 from external.odds_api.player_props import get_upcoming_games_odds_api, get_player_props
@@ -14,7 +16,7 @@ from external.nhl.teams import fetch_and_clean_team, fetch_and_clean_team_roster
 from external.nhl.games import fetch_and_get_players_in_a_game, get_current_scores
 from .crud.team_history import upsert_team_history, check_team_history_exists_and_updated
 from .crud.teams import get_all_tri_codes_in_db, upsert_team,update_team_roster_last_updated, get_all_tri_codes_update_roster
-from .crud.games import has_games_to_poll, check_if_games_in_db, upsert_scraped_games_from_schedule, get_date_most_recent_game_marked_as_future, delete_games_for_team_in_the_future
+from .crud.games import has_games_to_poll, check_if_games_in_db, upsert_scraped_games_from_schedule, delete_future_games_not_in
 from .crud.players import get_players_not_in_db, upsert_scraped_player, set_all_other_players_current_team_tri_code_to_null
 from .crud.skater_game_logs import upsert_scraped_game_logs
 from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
@@ -71,16 +73,13 @@ async def fetch_current_schedules_for_all_teams():
     async with AsyncSessionLocal() as db:
         tri_codes = await get_all_tri_codes_in_db(db)
         for tri_code in tri_codes:
-            current_marked_upcoming_date = await get_date_most_recent_game_marked_as_future(db, tri_code)
-            # only fetch and update if current time(UTC) more recent
-            current_time = datetime.datetime.now(datetime.timezone.utc)
-            if current_marked_upcoming_date is None or current_time >= current_marked_upcoming_date:
-                schedule_data = await fetch_and_clean_team_schedule(tri_code, "now")
-                if schedule_data:
-                    # remove all games in database for this team that are in the future
-                    await delete_games_for_team_in_the_future(db, tri_code)
-                    # upsert all games
-                    await upsert_scraped_games_from_schedule(db, schedule_data)
+            # Always refetch: postponements, new start times and newly added games are only visible in the fetched schedule.
+            schedule_data = await fetch_and_clean_team_schedule(tri_code, "now")
+            if schedule_data:
+                # upsert first so a failed fetch/insert never leaves the team without games
+                await upsert_scraped_games_from_schedule(db, schedule_data)
+                # then drop only future games the NHL no longer lists (cancellations)
+                await delete_future_games_not_in(db, tri_code, [game.id for game in schedule_data])
 
 async def fetch_all_season_schedules_for_all_teams():
     async with AsyncSessionLocal() as db:
@@ -176,23 +175,16 @@ async def fetch_current_player_props():
     async with AsyncSessionLocal() as db:
         events = await get_upcoming_games_odds_api(start_time, end_time)
         all_games_today = await get_all_games_for_date(db, int_date)
+        # match Odds API team names to tri codes ignoring accents/case/punctuation ("Montreal" vs "Montréal")
+        tri_codes_by_name = {normalize_name(team.current_name): team.tri_code for team in await get_all_teams(db)}
         #match to games in db
         for event in events:
-            home_team_in_db = await search_teams_by_name(db, event.home_team, 1)
-            away_team_in_db = await search_teams_by_name(db, event.away_team, 1)
-            potential_tri_codes = []
+            home_tri_code = tri_codes_by_name.get(normalize_name(event.home_team))
+            away_tri_code = tri_codes_by_name.get(normalize_name(event.away_team))
+            potential_tri_codes = [code for code in (home_tri_code, away_tri_code) if code]
 
-            home_tri_code = None
-            if home_team_in_db:
-                home_tri_code = home_team_in_db[0].tri_code
-                potential_tri_codes.append(home_tri_code)
-            away_tri_code = None
-            if away_team_in_db:
-                away_tri_code = away_team_in_db[0].tri_code
-                potential_tri_codes.append(away_tri_code)
-            
             if len(potential_tri_codes) == 0:
-                print(f"No team found for event {event.event_id}")
+                print(f"No team found for event {event.event_id} ({event.away_team} @ {event.home_team})")
                 continue
 
             game_id = None
@@ -204,29 +196,65 @@ async def fetch_current_player_props():
                 print(f"No game found for event {event.event_id}")
                 continue
 
-            player_props = await get_player_props(event.event_id)
-            props_to_upsert = []
-            for prop in player_props:
-                player = await get_player_by_name_and_roster_options(db, prop.first_name, prop.last_name, potential_tri_codes)
-                if player is None:
-                    print(f"No player found for prop {prop.first_name} {prop.last_name}")
-                    continue
-                props_to_upsert.append(PlayerPropOut(
-                    game_id=game_id,
-                    player_id=player.id,
-                    prop_type=prop.prop_type,
-                    over_under=prop.over_under,
-                    odds=prop.odds,
-                    line=prop.line
-                ))
-            
-            if len(props_to_upsert) > 0:
-                # same prop from several bookmakers: keep consensus line at the best price
-                await upsert_player_props(db, select_best_props(props_to_upsert))
-                
+            try:
+                player_props = await get_player_props(event.event_id)
+                players_by_name = index_players_by_name(await get_players_on_teams(db, potential_tri_codes))
+                props_to_upsert = []
+                unmatched = {}
+                for prop in player_props:
+                    player, reason = match_player(players_by_name, prop.first_name, prop.last_name, prop.prop_type)
+                    if player is None:
+                        unmatched[f"{prop.first_name} {prop.last_name}"] = reason
+                        continue
+                    props_to_upsert.append(PlayerPropOut(
+                        game_id=game_id,
+                        player_id=player.id,
+                        prop_type=prop.prop_type,
+                        over_under=prop.over_under,
+                        odds=prop.odds,
+                        line=prop.line
+                    ))
+                if unmatched:
+                    print(f"Event {event.event_id}: {len(unmatched)} players not matched: {unmatched}")
+
+                if len(props_to_upsert) > 0:
+                    # same prop from several bookmakers: keep consensus line at the best price
+                    await upsert_player_props(db, select_best_props(props_to_upsert))
+            except Exception as e:
+                # one bad event must not stop props for the remaining games
+                await db.rollback()
+                print(f"Failed to process props for event {event.event_id}: {e}")
+
 async def train_models():
     async with AsyncSessionLocal() as db:
         await train_skater_models(db)
         await train_skater_classifiers(db)
         await train_goalie_models(db)
         await train_team_classifiers(db)
+
+
+async def run_step(name: str, step):
+    """Runs one pipeline step; a failure is logged and the pipeline moves on to the next step."""
+    try:
+        await step()
+    except Exception as e:
+        print(f"Nightly pipeline step '{name}' failed: {e!r}")
+        return False
+    return True
+
+async def nightly_pipeline():
+    """Runs the nightly jobs in dependency order: schedules and rosters first (new games and players),
+    then game logs, then features (which need the logs), then props (which need games and rosters),
+    and finally training (which needs the fresh features)."""
+    await run_step("schedules", fetch_current_schedules_for_all_teams)
+    await run_step("rosters", fetch_current_rosters_for_all_teams)
+    logs_ok = await run_step("player logs", scrape_all_player_logs)
+    if logs_ok:
+        features_ok = await run_step("features", update_daily_features)
+    else:
+        # features built from a partial log load would be wrong, so skip them (and training) this run
+        print("Skipping features and training: player log scrape failed")
+        features_ok = False
+    await run_step("props", fetch_current_player_props)
+    if features_ok:
+        await run_step("training", train_models)

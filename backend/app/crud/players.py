@@ -171,15 +171,7 @@ async def get_top_n_goalies(db: AsyncSession, n: int, season: int) -> list[Playe
     )
     return result.scalars().all()
 
-async def get_player_by_name_and_roster_options(db: AsyncSession, first_name: str, last_name: str, potential_tri_codes:list[str]) -> Player | None:
-    """Fetches player from db by name."""
-    result = await db.execute(
-        select(Player).where(
-            Player.first_name == first_name,
-            Player.last_name == last_name,
-            Player.current_team_tri_code.in_(potential_tri_codes)
-        )
-    )
-    return result.scalar_one_or_none()
-    
-    
+async def get_players_on_teams(db: AsyncSession, tri_codes: list[str]) -> list[Player]:
+    """Fetches all players currently on any of the given teams."""
+    result = await db.execute(select(Player).where(Player.current_team_tri_code.in_(tri_codes)))
+    return list(result.scalars().all())

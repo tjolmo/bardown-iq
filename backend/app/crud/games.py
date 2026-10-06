@@ -157,3 +157,13 @@ async def delete_games_for_team_in_the_future(db: AsyncSession, tri_code: str):
         )
     await db.execute(stmt)
     await db.commit()
+
+async def delete_future_games_not_in(db: AsyncSession, tri_code: str, keep_game_ids: list[int]):
+    """Deletes a team's future games whose ids are not in keep_game_ids (e.g. cancelled or rescheduled-to-new-id games)."""
+    stmt = delete(Games).where(
+        (Games.home_team_tri_code == tri_code) | (Games.away_team_tri_code == tri_code),
+        Games.game_state == "FUT",
+        Games.id.not_in(keep_game_ids),
+    )
+    await db.execute(stmt)
+    await db.commit()
