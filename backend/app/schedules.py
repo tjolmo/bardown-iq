@@ -162,7 +162,8 @@ async def scrape_all_player_logs(seasons: list[int] | None = None):
 
 async def fetch_current_scores():
     async with AsyncSessionLocal() as db:
-        scores = await get_current_scores()
+        tri_codes = set(await get_all_tri_codes_in_db(db))
+        scores = await get_current_scores(tri_codes)
         await upsert_scraped_games_from_schedule(db, scores)
 
 async def fetch_current_player_props():
