@@ -1,7 +1,8 @@
 from predictions.train import train_team_classifiers, train_goalie_models, train_skater_classifiers, train_skater_models
 from app.crud.props import upsert_player_props
 from app.schemas.player import PlayerPropOut
-from app.crud.players import get_player_by_name_and_roster_options
+from app.crud.players import get_players_on_teams
+from app.player_matching import index_players_by_name, match_player
 from app.crud.teams import search_teams_by_name
 from app.crud.games import get_all_games_for_date
 from external.odds_api.player_props import get_upcoming_games_odds_api, get_player_props
@@ -202,30 +203,39 @@ async def fetch_current_player_props():
                 print(f"No game found for event {event.event_id}")
                 continue
 
-            player_props = await get_player_props(event.event_id)
-            props_to_upsert = []
-            for prop in player_props:
-                player = await get_player_by_name_and_roster_options(db, prop.first_name, prop.last_name, potential_tri_codes)
-                if player is None:
-                    print(f"No player found for prop {prop.first_name} {prop.last_name}")
-                    continue
-                props_to_upsert.append(PlayerPropOut(
-                    game_id=game_id,
-                    player_id=player.id,
-                    prop_type=prop.prop_type,
-                    over_under=prop.over_under,
-                    odds=prop.odds,
-                    line=prop.line
-                ))
-            
-            if len(props_to_upsert) > 0:
-                # remove duplicates
-                seen = {}
-                for prop in props_to_upsert:
-                    key = (prop.game_id, prop.player_id, prop.prop_type, prop.over_under)
-                    seen[key] = prop
-                await upsert_player_props(db, list(seen.values()))
-                
+            try:
+                player_props = await get_player_props(event.event_id)
+                players_by_name = index_players_by_name(await get_players_on_teams(db, potential_tri_codes))
+                props_to_upsert = []
+                unmatched = {}
+                for prop in player_props:
+                    player, reason = match_player(players_by_name, prop.first_name, prop.last_name, prop.prop_type)
+                    if player is None:
+                        unmatched[f"{prop.first_name} {prop.last_name}"] = reason
+                        continue
+                    props_to_upsert.append(PlayerPropOut(
+                        game_id=game_id,
+                        player_id=player.id,
+                        prop_type=prop.prop_type,
+                        over_under=prop.over_under,
+                        odds=prop.odds,
+                        line=prop.line
+                    ))
+                if unmatched:
+                    print(f"Event {event.event_id}: {len(unmatched)} players not matched: {unmatched}")
+
+                if len(props_to_upsert) > 0:
+                    # remove duplicates
+                    seen = {}
+                    for prop in props_to_upsert:
+                        key = (prop.game_id, prop.player_id, prop.prop_type, prop.over_under)
+                        seen[key] = prop
+                    await upsert_player_props(db, list(seen.values()))
+            except Exception as e:
+                # one bad event must not stop props for the remaining games
+                await db.rollback()
+                print(f"Failed to process props for event {event.event_id}: {e}")
+
 async def train_models():
     async with AsyncSessionLocal() as db:
         await train_skater_models(db)
