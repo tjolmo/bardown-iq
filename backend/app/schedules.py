@@ -4,6 +4,7 @@ from app.schemas.player import PlayerPropOut
 from app.crud.players import get_player_by_name_and_roster_options
 from app.crud.teams import search_teams_by_name
 from app.crud.games import get_all_games_for_date
+from external.odds_api.dedupe import select_best_props
 from external.odds_api.player_props import get_upcoming_games_odds_api, get_player_props
 from app.crud.goalie_game_features import update_goalie_game_features
 from app.crud.skater_game_features import update_skater_game_features
@@ -219,12 +220,8 @@ async def fetch_current_player_props():
                 ))
             
             if len(props_to_upsert) > 0:
-                # remove duplicates
-                seen = {}
-                for prop in props_to_upsert:
-                    key = (prop.game_id, prop.player_id, prop.prop_type, prop.over_under)
-                    seen[key] = prop
-                await upsert_player_props(db, list(seen.values()))
+                # same prop from several bookmakers: keep consensus line at the best price
+                await upsert_player_props(db, select_best_props(props_to_upsert))
                 
 async def train_models():
     async with AsyncSessionLocal() as db:
