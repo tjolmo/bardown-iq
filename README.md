@@ -11,6 +11,25 @@
 ```bash
 docker compose up --build
 ```
+
+### Refreshing Data Manually
+
+The backend refreshes data on startup and nightly at 03:00. To trigger a full refresh (teams, schedules, rosters,
+game logs, features, live scores, player props and model training) on demand, set `ADMIN_TOKEN` in `.env` and call:
+
+```bash
+curl -X POST -H "X-Admin-Token: $ADMIN_TOKEN" http://localhost:8002/admin/refresh
+```
+
+The refresh runs in the background and returns `202` immediately, or `409` if a refresh is already running.
+Check its progress with:
+
+```bash
+curl -H "X-Admin-Token: $ADMIN_TOKEN" http://localhost:8002/admin/refresh
+```
+
+Both endpoints can also be called from the API docs at http://localhost:8002/docs: click **Authorize**, enter the token,
+then use **Try it out** on the `admin` endpoints.
 ## 📊 Data Sources & Attribution
 
 This project relies on data provided by **Moneypuck** and the **NHL**. Without their comprehensive data collection and advanced modeling, this predictive analysis would not be possible.
