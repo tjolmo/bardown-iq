@@ -232,3 +232,30 @@ async def train_models():
         await train_skater_classifiers(db)
         await train_goalie_models(db)
         await train_team_classifiers(db)
+
+
+async def run_step(name: str, step):
+    """Runs one pipeline step; a failure is logged and the pipeline moves on to the next step."""
+    try:
+        await step()
+    except Exception as e:
+        print(f"Nightly pipeline step '{name}' failed: {e!r}")
+        return False
+    return True
+
+async def nightly_pipeline():
+    """Runs the nightly jobs in dependency order: schedules and rosters first (new games and players),
+    then game logs, then features (which need the logs), then props (which need games and rosters),
+    and finally training (which needs the fresh features)."""
+    await run_step("schedules", fetch_current_schedules_for_all_teams)
+    await run_step("rosters", fetch_current_rosters_for_all_teams)
+    logs_ok = await run_step("player logs", scrape_all_player_logs)
+    if logs_ok:
+        features_ok = await run_step("features", update_daily_features)
+    else:
+        # features built from a partial log load would be wrong, so skip them (and training) this run
+        print("Skipping features and training: player log scrape failed")
+        features_ok = False
+    await run_step("props", fetch_current_player_props)
+    if features_ok:
+        await run_step("training", train_models)
