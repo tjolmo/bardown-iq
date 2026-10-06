@@ -1,5 +1,5 @@
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import GoalieGameLog
 from external.moneypuck.response_models import GoalieGameLogResponse
@@ -159,3 +159,8 @@ async def calculate_rolling_features_last_5_games_goalie(db: AsyncSession, playe
         "rolling_x_freeze": sum([game["x_freeze"] for game in last_5]) / 5,
     }, index=[0])
     return rolling_features
+
+async def get_latest_goalie_game_date_for_season(db: AsyncSession, season: int) -> int | None:
+    """Returns the newest stored game_date (YYYYMMDD) for a season, or None if nothing is stored yet."""
+    result = await db.execute(select(func.max(GoalieGameLog.game_date)).where(GoalieGameLog.season == season))
+    return result.scalar_one_or_none()
