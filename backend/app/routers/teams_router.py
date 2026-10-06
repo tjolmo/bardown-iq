@@ -94,16 +94,13 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
 
     if date == "today":
         int_date = today_int_date
-        #fetch odds once because it has all games
-        #only odds for today
-        moneyline_odds = await get_odds_for_current_games()
     else:
         try:
             int_date = int(date)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid date format. Please use YYYYMMDD or 'today'")
     
-    # get odds
+    # get odds (one call has all games, only odds for today)
     if int_date == today_int_date:
         moneyline_odds = await get_odds_for_current_games()
     else:
