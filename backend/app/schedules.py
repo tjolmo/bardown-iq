@@ -16,7 +16,7 @@ from external.nhl.teams import fetch_and_clean_team, fetch_and_clean_team_roster
 from external.nhl.games import fetch_and_get_players_in_a_game, get_current_scores
 from .crud.team_history import upsert_team_history, check_team_history_exists_and_updated
 from .crud.teams import get_all_tri_codes_in_db, upsert_team,update_team_roster_last_updated, get_all_tri_codes_update_roster
-from .crud.games import check_if_games_in_db, upsert_scraped_games_from_schedule, get_date_most_recent_game_marked_as_future, delete_games_for_team_in_the_future
+from .crud.games import check_if_games_in_db, upsert_scraped_games_from_schedule, delete_future_games_not_in
 from .crud.players import get_players_not_in_db, upsert_scraped_player, set_all_other_players_current_team_tri_code_to_null
 from .crud.skater_game_logs import upsert_scraped_game_logs
 from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
@@ -73,16 +73,13 @@ async def fetch_current_schedules_for_all_teams():
     async with AsyncSessionLocal() as db:
         tri_codes = await get_all_tri_codes_in_db(db)
         for tri_code in tri_codes:
-            current_marked_upcoming_date = await get_date_most_recent_game_marked_as_future(db, tri_code)
-            # only fetch and update if current time(UTC) more recent
-            current_time = datetime.datetime.now(datetime.timezone.utc)
-            if current_marked_upcoming_date is None or current_time >= current_marked_upcoming_date:
-                schedule_data = await fetch_and_clean_team_schedule(tri_code, "now")
-                if schedule_data:
-                    # remove all games in database for this team that are in the future
-                    await delete_games_for_team_in_the_future(db, tri_code)
-                    # upsert all games
-                    await upsert_scraped_games_from_schedule(db, schedule_data)
+            # Always refetch: postponements, new start times and newly added games are only visible in the fetched schedule.
+            schedule_data = await fetch_and_clean_team_schedule(tri_code, "now")
+            if schedule_data:
+                # upsert first so a failed fetch/insert never leaves the team without games
+                await upsert_scraped_games_from_schedule(db, schedule_data)
+                # then drop only future games the NHL no longer lists (cancellations)
+                await delete_future_games_not_in(db, tri_code, [game.id for game in schedule_data])
 
 async def fetch_all_season_schedules_for_all_teams():
     async with AsyncSessionLocal() as db:
