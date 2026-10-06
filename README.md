@@ -27,6 +27,9 @@ Check its progress with:
 ```bash
 curl -H "X-Admin-Token: $ADMIN_TOKEN" http://localhost:8002/admin/refresh
 ```
+
+Both endpoints can also be called from the API docs at http://localhost:8002/docs: click **Authorize**, enter the token,
+then use **Try it out** on the `admin` endpoints.
 ## 📊 Data Sources & Attribution
 
 This project relies on data provided by **Moneypuck** and the **NHL**. Without their comprehensive data collection and advanced modeling, this predictive analysis would not be possible.
