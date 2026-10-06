@@ -107,11 +107,14 @@ async def get_players_not_in_db(db: AsyncSession, player_ids: list[int]) -> list
     return [player_id for player_id in player_ids if player_id not in existing_player_ids]
 
 
-async def set_all_other_players_current_team_tri_code_to_null(db: AsyncSession, player_ids_on_current_roster: list[int]):
-    """Sets current_team_tri_code to null for all players not on the current roster for a team."""
+async def set_all_other_players_current_team_tri_code_to_null(db: AsyncSession, tri_code: str, player_ids_on_current_roster: list[int]):
+    """Sets current_team_tri_code to null for players assigned to tri_code who are not on its current roster."""
     stmt = (
         update(Player).
-        where(Player.id.not_in(player_ids_on_current_roster)).
+        where(
+            Player.current_team_tri_code == tri_code,
+            Player.id.not_in(player_ids_on_current_roster),
+        ).
         values(current_team_tri_code=None)
     )
     await db.execute(stmt)

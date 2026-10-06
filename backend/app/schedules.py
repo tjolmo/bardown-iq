@@ -54,16 +54,16 @@ async def add_old_teams_to_db():
 async def fetch_current_rosters_for_all_teams():
     async with AsyncSessionLocal() as db:
         tri_codes = await get_all_tri_codes_update_roster(db)
-        tri_codes = await get_all_tri_codes_in_db(db)
-        players_updated = []
         for tri_code in tri_codes:
             roster_data = await fetch_and_clean_team_roster(tri_code, "current")
             if roster_data:
                 for player in roster_data:
                     await upsert_scraped_player(db, player, tri_code)
-                    players_updated.append(player.id)
+                # only clear players previously on this team who are no longer on its roster
+                await set_all_other_players_current_team_tri_code_to_null(
+                    db, tri_code, [player.id for player in roster_data]
+                )
                 await update_team_roster_last_updated(db, tri_code)
-        await set_all_other_players_current_team_tri_code_to_null(db, players_updated)
         
 async def fetch_current_schedules_for_all_teams():
     async with AsyncSessionLocal() as db:
