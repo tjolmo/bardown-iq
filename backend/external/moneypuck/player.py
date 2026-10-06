@@ -23,6 +23,22 @@ def _download_season_zip(url: str) -> io.BytesIO:
     response.raise_for_status()
     return io.BytesIO(response.content)
 
+def _validate_rows(model, rows: list[dict], label: str) -> list:
+    """Validates each CSV row on its own so one malformed row is skipped (and counted) instead of discarding the season."""
+    valid = []
+    skipped = 0
+    first_error = None
+    for row in rows:
+        try:
+            valid.append(model.model_validate(row))
+        except Exception as e:
+            skipped += 1
+            if first_error is None:
+                first_error = e
+    if skipped:
+        logger.warning("Skipped %d of %d %s rows that failed validation; first error: %s", skipped, len(rows), label, first_error)
+    return valid
+
 # fixes issue with older gamelogs now being scraped
 def _normalize_tricodes(df: pd.DataFrame) -> pd.DataFrame:
     """Replace MoneyPuck dot-separated team codes with standard 3-letter tricodes."""
@@ -122,7 +138,7 @@ def scrape_all_skater_game_logs(season: int) -> list[SkaterGameLogResponse] | No
                 df = pd.read_csv(f, usecols=cols)
                 filtered = df.query('situation == "all"').copy()
                 filtered = _normalize_tricodes(filtered)
-            return [SkaterGameLogResponse.model_validate(row) for row in filtered.to_dict("records")]
+            return _validate_rows(SkaterGameLogResponse, filtered.to_dict("records"), f"skater {season}")
     except Exception as e:
         logger.error("Failed to load MoneyPuck %s data for season %s from %s: %s", "skater", season, csv_url, e)
         return None
@@ -149,7 +165,7 @@ def scrape_all_goalie_game_logs(season: int) -> list[GoalieGameLogResponse] | No
                 df = pd.read_csv(f, usecols=cols)
                 filtered = df.query('situation == "all"').copy()
                 filtered = _normalize_tricodes(filtered)
-            return [GoalieGameLogResponse.model_validate(row) for row in filtered.to_dict("records")]
+            return _validate_rows(GoalieGameLogResponse, filtered.to_dict("records"), f"goalie {season}")
     except Exception as e:
         logger.error("Failed to load MoneyPuck %s data for season %s from %s: %s", "goalie", season, csv_url, e)
         return None
