@@ -1,3 +1,4 @@
+import asyncio
 import joblib
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -29,6 +30,10 @@ async def train_skater_models(session: AsyncSession) -> dict[str, float]:
         print("No training data found.  Make sure SkaterGameFeatures and "
               "SkaterGameLog are populated.")
         return {}
+    # CPU-bound fitting runs in a worker thread so the event loop (API + scheduler) stays responsive
+    return await asyncio.to_thread(_fit_skater_models, df)
+
+def _fit_skater_models(df) -> dict:
     X = df[SKATER_FEATURE_COLUMNS].astype(np.float32)
     results: dict[str, float] = {}
     X_train, X_val, idx_train, idx_val = train_test_split(
@@ -58,6 +63,10 @@ async def train_skater_classifiers(session: AsyncSession) -> dict[str, dict]:
               "SkaterGameLog are populated.")
         return {}
 
+    # CPU-bound fitting runs in a worker thread so the event loop (API + scheduler) stays responsive
+    return await asyncio.to_thread(_fit_skater_classifiers, df)
+
+def _fit_skater_classifiers(df) -> dict:
     X = df[SKATER_FEATURE_COLUMNS].astype(np.float32)
     results: dict[str, dict] = {}
 
@@ -104,6 +113,10 @@ async def train_goalie_models(session: AsyncSession) -> dict[str, float]:
         print("No training data found.  Make sure GoalieGameFeatures and "
               "GoalieGameLog are populated.")
         return {}
+    # CPU-bound fitting runs in a worker thread so the event loop (API + scheduler) stays responsive
+    return await asyncio.to_thread(_fit_goalie_models, df)
+
+def _fit_goalie_models(df) -> dict:
     X = df[GOALIE_FEATURE_COLUMNS].astype(np.float32)
     results: dict[str, float] = {}
     X_train, X_val, idx_train, idx_val = train_test_split(
@@ -133,6 +146,10 @@ async def train_team_classifiers(session: AsyncSession) -> dict[str, dict]:
               "TeamGameFeatures are populated.")
         return {}
 
+    # CPU-bound fitting runs in a worker thread so the event loop (API + scheduler) stays responsive
+    return await asyncio.to_thread(_fit_team_classifiers, df)
+
+def _fit_team_classifiers(df) -> dict:
     df_home = df[df["is_home"] == 1].reset_index(drop=True)
     print(f"  Home-perspective rows for classifier: {len(df_home)} "
           f"(total rows with opponent features: {len(df)})")
