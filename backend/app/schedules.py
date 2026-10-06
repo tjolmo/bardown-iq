@@ -126,6 +126,19 @@ def get_current_season_start_year(today: datetime.date | None = None) -> int:
     today = today or datetime.date.today()
     return today.year if today.month >= 9 else today.year - 1
 
+async def add_missing_players(db, player_ids: set[int]) -> set[int]:
+    """Fetches and stores players not yet in the DB. Returns the ids whose info could not be fetched."""
+    failed: set[int] = set()
+    for player_id in await get_players_not_in_db(db, list(player_ids)):
+        player_info = await fetch_and_get_players_info(player_id)
+        if player_info:
+            await upsert_scraped_player(db, player_info, None)
+        else:
+            failed.add(player_id)
+    if failed:
+        print(f"Could not fetch info for {len(failed)} players; skipping their game logs: {sorted(failed)}")
+    return failed
+
 async def scrape_all_player_logs(seasons: list[int] | None = None):
     # resolve at run time so a long-running scheduler follows the calendar
     if seasons is None:
@@ -134,30 +147,14 @@ async def scrape_all_player_logs(seasons: list[int] | None = None):
         for season in seasons:
             all_skaters = scrape_all_skater_game_logs(season)
             if all_skaters:
-                # get unique player ids
-                player_ids = [skater.player_id for skater in all_skaters]
-                unique_player_ids = list(set(player_ids))
-                missing_players = await get_players_not_in_db(db, unique_player_ids)
-                for player in missing_players:
-                    player_info = await fetch_and_get_players_info(player)
-                    if player_info:
-                        await upsert_scraped_player(db, player_info, None)
-                    else:
-                        # remove from all_skaters
-                        all_skaters = [skater for skater in all_skaters if skater.player_id != player]
+                unplaceable = await add_missing_players(db, {skater.player_id for skater in all_skaters})
+                # drop logs for players we couldn't fetch (single pass)
+                all_skaters = [skater for skater in all_skaters if skater.player_id not in unplaceable]
                 await upsert_scraped_game_logs(db, all_skaters)
             all_goalies = scrape_all_goalie_game_logs(season) 
             if all_goalies:
-                player_ids = [goalie.player_id for goalie in all_goalies]
-                unique_player_ids = list(set(player_ids))
-                missing_players = await get_players_not_in_db(db, unique_player_ids)
-                for player in missing_players:
-                    player_info = await fetch_and_get_players_info(player)
-                    if player_info:
-                        await upsert_scraped_player(db, player_info, None)
-                    else:
-                        # remove from all_goalies
-                        all_goalies = [goalie for goalie in all_goalies if goalie.player_id != player]
+                unplaceable = await add_missing_players(db, {goalie.player_id for goalie in all_goalies})
+                all_goalies = [goalie for goalie in all_goalies if goalie.player_id not in unplaceable]
                 await upsert_scraped_goalie_game_logs(db, all_goalies)
 
 async def fetch_current_scores():
