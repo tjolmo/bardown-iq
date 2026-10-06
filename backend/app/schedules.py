@@ -12,9 +12,10 @@ from external.moneypuck.player import scrape_all_goalie_game_logs, scrape_all_sk
 from external.nhl.players import fetch_and_get_players_info
 from external.nhl.teams import fetch_and_clean_team, fetch_and_clean_team_roster, fetch_and_clean_team_schedule
 from external.nhl.games import fetch_and_get_players_in_a_game, get_current_scores
+from external.nhl.response_models import GameResponse
 from .crud.team_history import upsert_team_history, check_team_history_exists_and_updated
 from .crud.teams import get_all_tri_codes_in_db, upsert_team,update_team_roster_last_updated, get_all_tri_codes_update_roster
-from .crud.games import has_games_to_poll, check_if_games_in_db, upsert_scraped_games_from_schedule, delete_future_games_not_in
+from .crud.games import FINISHED_GAME_STATES, has_games_to_poll, check_if_games_in_db, upsert_scraped_games_from_schedule, delete_future_games_not_in
 from .crud.players import get_players_not_in_db, upsert_scraped_player, set_all_other_players_current_team_tri_code_to_null
 from .crud.skater_game_logs import upsert_scraped_game_logs
 from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
@@ -30,6 +31,8 @@ CURRENT_TEAMS = [
         5, 6, 25, 14, 4, 30, 68, 29, 53 #ari
 ]
 OLD_TEAMS = [59] #uhc
+# relocated teams whose old tri codes appear in 2008-2014 games/logs; only needed for historical backfills
+HISTORICAL_TEAMS = [11, 27] #atl, phx
 
 async def add_current_teams_to_db():
     async with AsyncSessionLocal() as db:
@@ -42,12 +45,17 @@ async def add_current_teams_to_db():
             else:
                 print(f"Team history for team ID {team_id} already exists in DB, skipping.")
 
-async def add_old_teams_to_db():
+async def add_old_teams_to_db(team_ids: list[int] = OLD_TEAMS):
     async with AsyncSessionLocal() as db:
-        for team_id in OLD_TEAMS:
+        tri_codes = set(await get_all_tri_codes_in_db(db))
+        for team_id in team_ids:
             if not await check_team_history_exists_and_updated(db, team_id):
-                _, team_history_data = await fetch_and_clean_team(team_id)
-                if team_history_data:
+                team = await fetch_and_clean_team(team_id)
+                if team:
+                    team_data, team_history_data = team
+                    # a tri code no current team uses (e.g. ATL) needs its own teams row for the FKs
+                    if team_data.tri_code not in tri_codes:
+                        await upsert_team(db, team_data)
                     await upsert_team_history(db, team_history_data)
             else:
                 print(f"Team history for team ID {team_id} already exists in DB, skipping.")
@@ -112,6 +120,35 @@ async def fetch_all_season_schedules_for_all_teams():
             # add every game to db after player scrape to ensure that players added first
             if schedule_data_to_add:
                 await upsert_scraped_games_from_schedule(db, schedule_data_to_add)
+
+def is_regular_or_playoff_game(game_id: int) -> bool:
+    """Game type is digits 5-6 of an NHL game id: 02 regular season, 03 playoffs."""
+    return game_id // 10_000 % 100 in (2, 3)
+
+def merge_season_schedules(schedules: list[list[GameResponse] | None]) -> list[GameResponse]:
+    """Dedupes team schedules (each game appears in both teams' schedules) into regular season and playoff games,
+    marking finished games OFF so they match the rest of the table."""
+    games = {}
+    for schedule in schedules:
+        for game in schedule or []:
+            if is_regular_or_playoff_game(game.id):
+                if game.game_state in FINISHED_GAME_STATES:
+                    game = game.model_copy(update={"game_state": "OFF"})
+                games[game.id] = game
+    return sorted(games.values(), key=lambda game: game.id)
+
+async def backfill_season_games(season_start_years: list[int]):
+    """Upserts schedules and final scores for past seasons (start years, e.g. 2008 for 2008-09).
+    Unlike fetch_all_season_schedules_for_all_teams it does not fetch the players in each game."""
+    async with AsyncSessionLocal() as db:
+        # teams with no games that season (expansion/relocated) just return an empty schedule
+        tri_codes = await get_all_tri_codes_in_db(db)
+        for year in season_start_years:
+            season = f"{year}{year + 1}"
+            schedules = await gather_bounded([fetch_and_clean_team_schedule(tri_code, season) for tri_code in tri_codes])
+            games = merge_season_schedules(schedules)
+            await upsert_scraped_games_from_schedule(db, games)
+            print(f"Season {season}: upserted {len(games)} games")
 
 def get_current_season_start_year(today: datetime.date | None = None) -> int:
     """Start year of the NHL season in progress (MoneyPuck's `season` value), e.g. 2025 for 2025-26.

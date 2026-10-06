@@ -1,0 +1,388 @@
+{
+ "count": 5,
+ "pageIndex": 0,
+ "pageSize": 100,
+ "pageCount": 1,
+ "items": [
+  {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/events/401145514/competitions/401145514/odds/1001?lang=en&region=us",
+   "provider": {
+    "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/providers/1001?lang=en&region=us",
+    "id": "1001",
+    "name": "Bet365",
+    "priority": 0
+   },
+   "details": "FLA +145",
+   "overUnder": 5.5,
+   "spread": -1.5,
+   "overOdds": -208.0,
+   "underOdds": 155.0,
+   "awayTeamOdds": {
+    "favorite": false,
+    "underdog": true,
+    "moneyLine": 145,
+    "spreadOdds": -270.0,
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "+1.5",
+      "american": "+1.5"
+     },
+     "spread": {
+      "alternateDisplayValue": "-270",
+      "american": "-270"
+     },
+     "moneyLine": {
+      "alternateDisplayValue": "+145",
+      "american": "+145"
+     }
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/seasons/2020/teams/20?lang=en&region=us"
+    }
+   },
+   "homeTeamOdds": {
+    "favorite": true,
+    "underdog": false,
+    "moneyLine": 145,
+    "spreadOdds": 220.0,
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "-1.5",
+      "american": "-1.5"
+     },
+     "spread": {
+      "alternateDisplayValue": "+220",
+      "american": "+220"
+     },
+     "moneyLine": {
+      "alternateDisplayValue": "+145",
+      "american": "+145"
+     }
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/seasons/2020/teams/26?lang=en&region=us"
+    }
+   },
+   "moneylineWinner": false,
+   "spreadWinner": false,
+   "current": {
+    "over": {
+     "alternateDisplayValue": "-208",
+     "american": "-208"
+    },
+    "under": {
+     "alternateDisplayValue": "+155",
+     "american": "+155"
+    },
+    "total": {
+     "alternateDisplayValue": "5.5",
+     "american": "5.5"
+    }
+   }
+  },
+  {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/events/401145514/competitions/401145514/odds/35?lang=en&region=us",
+   "provider": {
+    "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/providers/35?lang=en&region=us",
+    "id": "35",
+    "name": "CG Technology",
+    "priority": 0
+   },
+   "details": "FLA -105",
+   "overUnder": 6.5,
+   "spread": -1.5,
+   "overOdds": -125.0,
+   "underOdds": 105.0,
+   "awayTeamOdds": {
+    "favorite": false,
+    "underdog": true,
+    "moneyLine": -115,
+    "spreadOdds": -260.0,
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "+1.5",
+      "american": "+1.5"
+     },
+     "spread": {
+      "alternateDisplayValue": "-260",
+      "american": "-260"
+     },
+     "moneyLine": {
+      "alternateDisplayValue": "-115",
+      "american": "-115"
+     }
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/seasons/2020/teams/20?lang=en&region=us"
+    }
+   },
+   "homeTeamOdds": {
+    "favorite": true,
+    "underdog": false,
+    "moneyLine": -105,
+    "spreadOdds": 220.0,
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "-1.5",
+      "american": "-1.5"
+     },
+     "spread": {
+      "alternateDisplayValue": "+220",
+      "american": "+220"
+     },
+     "moneyLine": {
+      "alternateDisplayValue": "-105",
+      "american": "-105"
+     }
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/seasons/2020/teams/26?lang=en&region=us"
+    }
+   },
+   "moneylineWinner": false,
+   "spreadWinner": false,
+   "current": {
+    "over": {
+     "alternateDisplayValue": "-125",
+     "american": "-125"
+    },
+    "under": {
+     "alternateDisplayValue": "+105",
+     "american": "+105"
+    },
+    "total": {
+     "alternateDisplayValue": "6.5",
+     "american": "6.5"
+    }
+   }
+  },
+  {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/events/401145514/competitions/401145514/odds/38?lang=en&region=us",
+   "provider": {
+    "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/providers/38?lang=en&region=us",
+    "id": "38",
+    "name": "Caesars",
+    "priority": 0
+   },
+   "details": "FLA -105",
+   "overUnder": 6.5,
+   "spread": -1.5,
+   "overOdds": -125.0,
+   "underOdds": 105.0,
+   "awayTeamOdds": {
+    "favorite": false,
+    "underdog": true,
+    "moneyLine": -110,
+    "spreadOdds": -260.0,
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "+1.5",
+      "american": "+1.5"
+     },
+     "spread": {
+      "alternateDisplayValue": "-260",
+      "american": "-260"
+     },
+     "moneyLine": {
+      "alternateDisplayValue": "-110",
+      "american": "-110"
+     }
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/seasons/2020/teams/20?lang=en&region=us"
+    }
+   },
+   "homeTeamOdds": {
+    "favorite": true,
+    "underdog": false,
+    "moneyLine": -105,
+    "spreadOdds": 220.0,
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "-1.5",
+      "american": "-1.5"
+     },
+     "spread": {
+      "alternateDisplayValue": "+220",
+      "american": "+220"
+     },
+     "moneyLine": {
+      "alternateDisplayValue": "-105",
+      "american": "-105"
+     }
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/seasons/2020/teams/26?lang=en&region=us"
+    }
+   },
+   "moneylineWinner": false,
+   "spreadWinner": false,
+   "current": {
+    "over": {
+     "alternateDisplayValue": "-125",
+     "american": "-125"
+    },
+    "under": {
+     "alternateDisplayValue": "+105",
+     "american": "+105"
+    },
+    "total": {
+     "alternateDisplayValue": "6.5",
+     "american": "6.5"
+    }
+   }
+  },
+  {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/events/401145514/competitions/401145514/odds/40?lang=en&region=us",
+   "provider": {
+    "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/providers/40?lang=en&region=us",
+    "id": "40",
+    "name": "DraftKings",
+    "priority": 0
+   },
+   "details": "FLA +142",
+   "overUnder": 5.5,
+   "spread": -1.5,
+   "overOdds": -213.0,
+   "underOdds": 170.0,
+   "awayTeamOdds": {
+    "favorite": false,
+    "underdog": true,
+    "moneyLine": 155,
+    "spreadOdds": -270.0,
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "+1.5",
+      "american": "+1.5"
+     },
+     "spread": {
+      "alternateDisplayValue": "-270",
+      "american": "-270"
+     },
+     "moneyLine": {
+      "alternateDisplayValue": "+155",
+      "american": "+155"
+     }
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/seasons/2020/teams/20?lang=en&region=us"
+    }
+   },
+   "homeTeamOdds": {
+    "favorite": true,
+    "underdog": false,
+    "moneyLine": 142,
+    "spreadOdds": 220.0,
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "-1.5",
+      "american": "-1.5"
+     },
+     "spread": {
+      "alternateDisplayValue": "+220",
+      "american": "+220"
+     },
+     "moneyLine": {
+      "alternateDisplayValue": "+142",
+      "american": "+142"
+     }
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/seasons/2020/teams/26?lang=en&region=us"
+    }
+   },
+   "moneylineWinner": false,
+   "spreadWinner": false,
+   "current": {
+    "over": {
+     "alternateDisplayValue": "-213",
+     "american": "-213"
+    },
+    "under": {
+     "alternateDisplayValue": "+170",
+     "american": "+170"
+    },
+    "total": {
+     "alternateDisplayValue": "5.5",
+     "american": "5.5"
+    }
+   }
+  },
+  {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/events/401145514/competitions/401145514/odds/25?lang=en&region=us",
+   "provider": {
+    "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/providers/25?lang=en&region=us",
+    "id": "25",
+    "name": "Westgate",
+    "priority": 0
+   },
+   "details": "FLA +100",
+   "overUnder": 6.5,
+   "spread": -1.5,
+   "overOdds": -120.0,
+   "underOdds": 100.0,
+   "awayTeamOdds": {
+    "favorite": false,
+    "underdog": true,
+    "moneyLine": -110,
+    "spreadOdds": -260.0,
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "+1.5",
+      "american": "+1.5"
+     },
+     "spread": {
+      "alternateDisplayValue": "-260",
+      "american": "-260"
+     },
+     "moneyLine": {
+      "alternateDisplayValue": "-110",
+      "american": "-110"
+     }
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/seasons/2020/teams/20?lang=en&region=us"
+    }
+   },
+   "homeTeamOdds": {
+    "favorite": true,
+    "underdog": false,
+    "moneyLine": 100,
+    "spreadOdds": 230.0,
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "-1.5",
+      "american": "-1.5"
+     },
+     "spread": {
+      "alternateDisplayValue": "+230",
+      "american": "+230"
+     },
+     "moneyLine": {
+      "alternateDisplayValue": "+100",
+      "american": "+100"
+     }
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/seasons/2020/teams/26?lang=en&region=us"
+    }
+   },
+   "moneylineWinner": false,
+   "spreadWinner": false,
+   "current": {
+    "over": {
+     "alternateDisplayValue": "-120",
+     "american": "-120"
+    },
+    "under": {
+     "alternateDisplayValue": "+100",
+     "american": "+100"
+    },
+    "total": {
+     "alternateDisplayValue": "6.5",
+     "american": "6.5"
+    }
+   }
+  }
+ ]
+}

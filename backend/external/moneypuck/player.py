@@ -17,6 +17,12 @@ TRICODE_MAP = {
     "L.A": "LAK",
 }
 
+# MoneyPuck labels old seasons with the franchise's current code; the NHL API uses the code of the time.
+# code -> (code at the time, last season start year it applies to)
+LEGACY_TRICODES = {
+    "ARI": ("PHX", 2013),  # Phoenix Coyotes until 2013-14
+}
+
 def _download_season_zip(url: str) -> io.BytesIO:
     """Downloads a season zip, raising on timeouts and non-2xx responses (so an HTML error page is never treated as a zip)."""
     response = requests.get(url, timeout=DOWNLOAD_TIMEOUT)
@@ -51,10 +57,14 @@ def _validate_rows(model, rows: list[dict], label: str) -> list:
 
 # fixes issue with older gamelogs now being scraped
 def _normalize_tricodes(df: pd.DataFrame) -> pd.DataFrame:
-    """Replace MoneyPuck dot-separated team codes with standard 3-letter tricodes."""
+    """Replace MoneyPuck dot-separated team codes with standard 3-letter tricodes, and modern codes with the
+    code the team used that season (so logs match the NHL API's games)."""
     for col in ("playerTeam", "opposingTeam"):
         if col in df.columns:
             df[col] = df[col].replace(TRICODE_MAP)
+            if "season" in df.columns:
+                for code, (old_code, last_season) in LEGACY_TRICODES.items():
+                    df.loc[(df[col] == code) & (df["season"] <= last_season), col] = old_code
     return df
 
 def scrape_skater_game_data(player_id: int, start_date: int|None = None) -> list[SkaterGameLogResponse] | None:
