@@ -21,6 +21,7 @@ from app.database import AsyncSessionLocal
 from app.crud.team_game_logs import build_team_game_logs
 from app.crud.team_game_features import update_team_game_features
 import asyncio
+from external.http import gather_bounded
 import datetime
 
 CURRENT_TEAMS = [
@@ -55,8 +56,9 @@ async def add_old_teams_to_db():
 async def fetch_current_rosters_for_all_teams():
     async with AsyncSessionLocal() as db:
         tri_codes = await get_all_tri_codes_update_roster(db)
-        for tri_code in tri_codes:
-            roster_data = await fetch_and_clean_team_roster(tri_code, "current")
+        # fetch all rosters concurrently; DB writes stay sequential (one session)
+        rosters = await gather_bounded([fetch_and_clean_team_roster(tri_code, "current") for tri_code in tri_codes])
+        for tri_code, roster_data in zip(tri_codes, rosters):
             if roster_data:
                 for player in roster_data:
                     await upsert_scraped_player(db, player, tri_code)
@@ -69,17 +71,21 @@ async def fetch_current_rosters_for_all_teams():
 async def fetch_current_schedules_for_all_teams():
     async with AsyncSessionLocal() as db:
         tri_codes = await get_all_tri_codes_in_db(db)
+        # work out which teams are due, fetch their schedules concurrently, then write sequentially
+        current_time = datetime.datetime.now(datetime.timezone.utc)
+        due_tri_codes = []
         for tri_code in tri_codes:
             current_marked_upcoming_date = await get_date_most_recent_game_marked_as_future(db, tri_code)
             # only fetch and update if current time(UTC) more recent
-            current_time = datetime.datetime.now(datetime.timezone.utc)
             if current_marked_upcoming_date is None or current_time >= current_marked_upcoming_date:
-                schedule_data = await fetch_and_clean_team_schedule(tri_code, "now")
-                if schedule_data:
-                    # remove all games in database for this team that are in the future
-                    await delete_games_for_team_in_the_future(db, tri_code)
-                    # upsert all games
-                    await upsert_scraped_games_from_schedule(db, schedule_data)
+                due_tri_codes.append(tri_code)
+        schedules = await gather_bounded([fetch_and_clean_team_schedule(tri_code, "now") for tri_code in due_tri_codes])
+        for tri_code, schedule_data in zip(due_tri_codes, schedules):
+            if schedule_data:
+                # remove all games in database for this team that are in the future
+                await delete_games_for_team_in_the_future(db, tri_code)
+                # upsert all games
+                await upsert_scraped_games_from_schedule(db, schedule_data)
 
 async def fetch_all_season_schedules_for_all_teams():
     async with AsyncSessionLocal() as db:
@@ -140,8 +146,8 @@ async def scrape_all_player_logs(seasons: list[int] | None = None):
                 player_ids = [skater.player_id for skater in all_skaters]
                 unique_player_ids = list(set(player_ids))
                 missing_players = await get_players_not_in_db(db, unique_player_ids)
-                for player in missing_players:
-                    player_info = await fetch_and_get_players_info(player)
+                player_infos = await gather_bounded([fetch_and_get_players_info(player) for player in missing_players])
+                for player, player_info in zip(missing_players, player_infos):
                     if player_info:
                         await upsert_scraped_player(db, player_info, None)
                     else:
@@ -153,8 +159,8 @@ async def scrape_all_player_logs(seasons: list[int] | None = None):
                 player_ids = [goalie.player_id for goalie in all_goalies]
                 unique_player_ids = list(set(player_ids))
                 missing_players = await get_players_not_in_db(db, unique_player_ids)
-                for player in missing_players:
-                    player_info = await fetch_and_get_players_info(player)
+                player_infos = await gather_bounded([fetch_and_get_players_info(player) for player in missing_players])
+                for player, player_info in zip(missing_players, player_infos):
                     if player_info:
                         await upsert_scraped_player(db, player_info, None)
                     else:
