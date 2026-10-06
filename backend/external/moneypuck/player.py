@@ -4,6 +4,7 @@ import zipfile
 import io
 import logging
 import requests
+import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,18 @@ def _normalize_tricodes(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].replace(TRICODE_MAP)
     return df
+
+def date_int_days_before(date_int: int, days: int) -> int:
+    """Returns the YYYYMMDD int `days` before the given YYYYMMDD int."""
+    date = datetime.datetime.strptime(str(date_int), "%Y%m%d").date()
+    return int((date - datetime.timedelta(days=days)).strftime("%Y%m%d"))
+
+def _log_newest_game_date(df: pd.DataFrame, kind: str, season: int) -> None:
+    """Logs the newest gameDate in the download so a stale mirror is visible in the logs."""
+    if df.empty:
+        logger.info("MoneyPuck %s %s: no rows after filtering", kind, season)
+    else:
+        logger.info("MoneyPuck %s %s: %d rows, newest gameDate %s", kind, season, len(df), df["gameDate"].max())
 
 def scrape_skater_game_data(player_id: int, start_date: int|None = None) -> list[SkaterGameLogResponse] | None:
     """REMOVE LATER"""
@@ -104,8 +117,9 @@ def scrape_goalie_game_data(player_id: int, start_date: int|None = None) -> list
         print(f"Error loading data: {e}")
         return None
 
-def scrape_all_skater_game_logs(season: int) -> list[SkaterGameLogResponse] | None:
-    """Scrapes game log data for all skaters for one season from Moneypuck, cleans, returns list of SkaterGameLogResponse."""
+def scrape_all_skater_game_logs(season: int, since_date: int | None = None) -> list[SkaterGameLogResponse] | None:
+    """Scrapes game log data for all skaters for one season from Moneypuck, cleans, returns list of SkaterGameLogResponse.
+    If since_date (YYYYMMDD) is given, only rows with gameDate >= since_date are validated and returned."""
     csv_url = f"https://peter-tanner.com/moneypuck/downloads/seasonPlayersSummary/skaters/{season}.zip"
     cols = [
         'playerId', 'season', 'name', 'gameId', 'home_or_away',
@@ -121,14 +135,18 @@ def scrape_all_skater_game_logs(season: int) -> list[SkaterGameLogResponse] | No
             with z.open(f"{season}.csv") as f:
                 df = pd.read_csv(f, usecols=cols)
                 filtered = df.query('situation == "all"').copy()
+                if since_date is not None:
+                    filtered = filtered[filtered["gameDate"] >= since_date].copy()
+                _log_newest_game_date(filtered, "skater", season)
                 filtered = _normalize_tricodes(filtered)
             return [SkaterGameLogResponse.model_validate(row) for row in filtered.to_dict("records")]
     except Exception as e:
         logger.error("Failed to load MoneyPuck %s data for season %s from %s: %s", "skater", season, csv_url, e)
         return None
 
-def scrape_all_goalie_game_logs(season: int) -> list[GoalieGameLogResponse] | None:
-    """Scrapes game log data for all goalies for one season from Moneypuck, cleans, returns list of GoalieGameLogResponse."""
+def scrape_all_goalie_game_logs(season: int, since_date: int | None = None) -> list[GoalieGameLogResponse] | None:
+    """Scrapes game log data for all goalies for one season from Moneypuck, cleans, returns list of GoalieGameLogResponse.
+    If since_date (YYYYMMDD) is given, only rows with gameDate >= since_date are validated and returned."""
     csv_url = f"https://peter-tanner.com/moneypuck/downloads/seasonPlayersSummary/goalies/{season}.zip"
     cols= [
         'playerId', 'season', 'name', 'gameId', 'home_or_away',
@@ -148,6 +166,9 @@ def scrape_all_goalie_game_logs(season: int) -> list[GoalieGameLogResponse] | No
             with z.open(f"{season}.csv") as f:
                 df = pd.read_csv(f, usecols=cols)
                 filtered = df.query('situation == "all"').copy()
+                if since_date is not None:
+                    filtered = filtered[filtered["gameDate"] >= since_date].copy()
+                _log_newest_game_date(filtered, "goalie", season)
                 filtered = _normalize_tricodes(filtered)
             return [GoalieGameLogResponse.model_validate(row) for row in filtered.to_dict("records")]
     except Exception as e:

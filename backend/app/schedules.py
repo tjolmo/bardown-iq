@@ -7,7 +7,7 @@ from app.crud.games import get_all_games_for_date
 from external.odds_api.player_props import get_upcoming_games_odds_api, get_player_props
 from app.crud.goalie_game_features import update_goalie_game_features
 from app.crud.skater_game_features import update_skater_game_features
-from external.moneypuck.player import scrape_all_goalie_game_logs, scrape_all_skater_game_logs
+from external.moneypuck.player import scrape_all_goalie_game_logs, scrape_all_skater_game_logs, date_int_days_before
 from external.nhl.players import fetch_and_get_players_info
 from external.nhl.teams import fetch_and_clean_team, fetch_and_clean_team_roster, fetch_and_clean_team_schedule
 from external.nhl.games import fetch_and_get_players_in_a_game, get_current_scores
@@ -15,13 +15,16 @@ from .crud.team_history import upsert_team_history, check_team_history_exists_an
 from .crud.teams import get_all_tri_codes_in_db, upsert_team,update_team_roster_last_updated, get_all_tri_codes_update_roster
 from .crud.games import check_if_games_in_db, upsert_scraped_games_from_schedule, get_date_most_recent_game_marked_as_future, delete_games_for_team_in_the_future
 from .crud.players import get_players_not_in_db, upsert_scraped_player, set_all_other_players_current_team_tri_code_to_null
-from .crud.skater_game_logs import upsert_scraped_game_logs
-from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
+from .crud.skater_game_logs import upsert_scraped_game_logs, get_latest_skater_game_date_for_season
+from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs, get_latest_goalie_game_date_for_season
 from app.database import AsyncSessionLocal
 from app.crud.team_game_logs import build_team_game_logs
 from app.crud.team_game_features import update_team_game_features
 import asyncio
 import datetime
+
+# the MoneyPuck refresh re-reads this many days before the newest stored game, to pick up stat corrections
+MONEYPUCK_REFRESH_OVERLAP_DAYS = 7
 
 CURRENT_TEAMS = [
         8, 7, 2, 28, 13, 12, 54, 52, 
@@ -127,14 +130,21 @@ def get_current_season_start_year(today: datetime.date | None = None) -> int:
     today = today or datetime.date.today()
     return today.year if today.month >= 9 else today.year - 1
 
-async def scrape_all_player_logs(seasons: list[int] | None = None):
+async def scrape_all_player_logs(seasons: list[int] | None = None, full_refresh: bool = False):
+    """Loads MoneyPuck game logs. Incremental by default: only rows from MONEYPUCK_REFRESH_OVERLAP_DAYS before the newest
+    stored game of the season are processed. Pass full_refresh=True to reprocess the whole season file."""
     # resolve at run time so a long-running scheduler follows the calendar
     if seasons is None:
         seasons = [get_current_season_start_year()]
     async with AsyncSessionLocal() as db:
         for season in seasons:
             # blocking download + pandas parse, so keep it off the event loop
-            all_skaters = await asyncio.to_thread(scrape_all_skater_game_logs, season)
+            skater_since = None
+            if not full_refresh:
+                latest = await get_latest_skater_game_date_for_season(db, season)
+                if latest:
+                    skater_since = date_int_days_before(latest, MONEYPUCK_REFRESH_OVERLAP_DAYS)
+            all_skaters = await asyncio.to_thread(scrape_all_skater_game_logs, season, skater_since)
             if all_skaters:
                 # get unique player ids
                 player_ids = [skater.player_id for skater in all_skaters]
@@ -148,7 +158,12 @@ async def scrape_all_player_logs(seasons: list[int] | None = None):
                         # remove from all_skaters
                         all_skaters = [skater for skater in all_skaters if skater.player_id != player]
                 await upsert_scraped_game_logs(db, all_skaters)
-            all_goalies = await asyncio.to_thread(scrape_all_goalie_game_logs, season)
+            goalie_since = None
+            if not full_refresh:
+                latest = await get_latest_goalie_game_date_for_season(db, season)
+                if latest:
+                    goalie_since = date_int_days_before(latest, MONEYPUCK_REFRESH_OVERLAP_DAYS)
+            all_goalies = await asyncio.to_thread(scrape_all_goalie_game_logs, season, goalie_since)
             if all_goalies:
                 player_ids = [goalie.player_id for goalie in all_goalies]
                 unique_player_ids = list(set(player_ids))
