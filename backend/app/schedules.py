@@ -243,7 +243,7 @@ async def run_step(name: str, step):
     try:
         await step()
     except Exception as e:
-        print(f"Nightly pipeline step '{name}' failed: {e!r}")
+        print(f"Pipeline step '{name}' failed: {e!r}")
         return False
     return True
 
@@ -260,6 +260,24 @@ async def nightly_pipeline():
         # features built from a partial log load would be wrong, so skip them (and training) this run
         print("Skipping features and training: player log scrape failed")
         features_ok = False
+    await run_step("props", fetch_current_player_props)
+    if features_ok:
+        await run_step("training", train_models)
+
+async def full_refresh():
+    """Refreshes everything: teams, schedules, rosters, game logs, features, live scores, props and models.
+    Same ordering and skip rules as the nightly pipeline, plus the team tables the nightly run leaves alone."""
+    await run_step("teams", add_current_teams_to_db)
+    await run_step("old teams", add_old_teams_to_db)
+    await run_step("schedules", fetch_current_schedules_for_all_teams)
+    await run_step("rosters", fetch_current_rosters_for_all_teams)
+    logs_ok = await run_step("player logs", scrape_all_player_logs)
+    if logs_ok:
+        features_ok = await run_step("features", update_daily_features)
+    else:
+        print("Skipping features and training: player log scrape failed")
+        features_ok = False
+    await run_step("scores", fetch_current_scores)
     await run_step("props", fetch_current_player_props)
     if features_ok:
         await run_step("training", train_models)
