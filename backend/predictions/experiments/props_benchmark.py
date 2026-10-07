@@ -18,6 +18,8 @@ Sources:
     python -m predictions.experiments.props_benchmark --variant +market+sog/pp_2008 \
         --skater-preds /scratch/props_preds_skater_trend.pkl /scratch/props_preds_skater.pkl [--vig shin] [--quotes]
 Several skater prediction files can be given; for each target the first file holding the prediction column wins.
+Dispersion: Poisson by default; `--alpha hits=0.12 ...` fixes a stat's negative-binomial alpha, and `--fitted-alpha`
+prices each row with the alpha props_models fitted on that fold's early-stopping season (`alpha_{variant}_{target}`).
 """
 import argparse
 import asyncio
@@ -119,11 +121,12 @@ def consensus_markets(quotes: pd.DataFrame, method: str) -> pd.DataFrame:
 
 
 def p_over(lam, line, alpha=0.0):
-    """P(X > line) for a Poisson count, or a negative binomial with variance mu(1 + alpha mu) when alpha > 0."""
-    if alpha > 0:
-        n = 1 / alpha
-        return 1 - nbinom.cdf(np.floor(line), n, n / (n + lam))
-    return 1 - poisson.cdf(np.floor(line), lam)
+    """P(X > line) for a Poisson count, or a negative binomial with variance mu(1 + alpha mu) where alpha > 0
+    (alpha: a scalar or one per row)."""
+    lam, k = np.asarray(lam, float), np.floor(np.asarray(line, float))
+    alpha = np.broadcast_to(np.asarray(alpha, float), np.broadcast(lam, k).shape)
+    n = 1 / np.where(alpha > 0, alpha, 1.0)
+    return np.where(alpha > 0, 1 - nbinom.cdf(k, n, n / (n + lam)), 1 - poisson.cdf(k, lam))
 
 
 def bets(df, p_model, over_col, under_col, label, out):
@@ -228,7 +231,7 @@ def print_result(prop_type, r):
                       f"CI[{b['ci95'][0]:+.3f},{b['ci95'][1]:+.3f}] {b['by_season']}")
 
 
-def run(props, preds, variants, method, alphas, only=None):
+def run(props, preds, variants, method, alphas, only=None, fitted_alpha=False):
     report = {}
     for prop_type, (target, kind, one_line) in PROP_TARGETS.items():
         if only and prop_type not in only:
@@ -240,14 +243,19 @@ def run(props, preds, variants, method, alphas, only=None):
             if not sub.empty:
                 print(f"\n== {prop_type}: {len(sub)} rows, no predictions column {pcol!r}; skipped")
             continue
-        pr = frame[["game_id", "player_id", target, pcol]].rename(columns={target: "actual", pcol: "lam"})
+        acol = f"alpha_{variants[kind]}_{target}"
+        if fitted_alpha and acol not in frame:
+            print(f"\n== {prop_type}: no fitted alpha column {acol!r}; priced as Poisson")
+        pr = frame[["game_id", "player_id", target, pcol] + ([acol] if fitted_alpha and acol in frame else [])]
+        pr = pr.rename(columns={target: "actual", pcol: "lam", acol: "alpha"})
         df = sub.merge(pr, on=["game_id", "player_id"]).dropna(subset=["actual", "lam"]).reset_index(drop=True)
         if df.empty:
             continue
         df["line_used"] = one_line if one_line is not None else df["line"]
         # a whole-number line that lands exactly is a push (stake back): neither side's outcome, so leave it out
         df = df[df["actual"] != df["line_used"]].reset_index(drop=True)
-        p_model = p_over(df["lam"].to_numpy(), df["line_used"].to_numpy(float), alphas.get(target, 0.0))
+        alpha = df["alpha"].to_numpy(float) if "alpha" in df else alphas.get(target, 0.0)
+        p_model = p_over(df["lam"].to_numpy(), df["line_used"].to_numpy(float), alpha)
         y = (df["actual"] > df["line_used"]).astype(int).to_numpy()
         r = evaluate(df, p_model, y, method, two_sided=one_line is None, one_line=one_line)
         r["matched_share"] = round(len(df) / len(sub), 3)
@@ -277,6 +285,8 @@ def main():
     ap.add_argument("--vig", choices=METHODS, default=DEFAULT_VIG, help="vig removal for the market probability")
     ap.add_argument("--quotes", action="store_true", help="multi-book Odds API quotes instead of ESPN history")
     ap.add_argument("--alpha", nargs="*", default=[], help="stat=alpha negative-binomial dispersion, e.g. shots_on_goal=0.06")
+    ap.add_argument("--fitted-alpha", action="store_true",
+                    help="price with the out-of-sample alphas saved by props_models (overrides --alpha)")
     ap.add_argument("--only", nargs="*", default=None)
     args = ap.parse_args()
     if args.quotes:
@@ -293,7 +303,8 @@ def main():
     alphas = {k: float(v) for k, v in (a.split("=") for a in args.alpha)}
     preds = {"skater": [pd.read_pickle(p) for p in args.skater_preds],
              "goalie": [pd.read_pickle(p) for p in args.goalie_preds]}
-    report = run(props, preds, {"skater": args.variant, "goalie": args.goalie_variant}, args.vig, alphas, args.only)
+    report = run(props, preds, {"skater": args.variant, "goalie": args.goalie_variant}, args.vig, alphas, args.only,
+                 args.fitted_alpha)
     report["_source"] = "odds_api_prop_quotes" if args.quotes else "player_prop_odds"
     with open(args.out, "w") as f:
         json.dump(report, f, indent=1, default=float)

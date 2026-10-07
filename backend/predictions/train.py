@@ -14,6 +14,7 @@ from sklearn.preprocessing import StandardScaler
 from sqlalchemy.ext.asyncio import AsyncSession
 from xgboost import XGBRegressor
 from . import features as F
+from .dispersion import fit_alpha
 from .config import (
     SKATER_BUNDLE, GOALIE_BUNDLE, TEAM_BUNDLE, METRICS_PATH, SKATER_TARGETS, GOALIE_TARGETS, GOALIE_TREND_TARGETS,
     SKATER_EXTRA_STATS, SKATER_TREND_TARGETS,
@@ -73,7 +74,8 @@ def _recency_weights(dates: pd.Series, half_life: float | None):
 
 def _fit_count_models(df, targets, cols, params, baselines, trend_targets=(), half_life=None) -> tuple[dict, dict]:
     """Fits one Poisson model per target: early-stopped on the held-out recent games, then refit on everything.
-    `half_life` (seasons) down-weights older games."""
+    `half_life` (seasons) down-weights older games. Each target's negative-binomial dispersion for prop pricing is
+    fitted on the validation predictions (metrics[target]["dispersion"]; see `_dispersion`)."""
     train, valid = _time_split(df)
     # one float32 matrix, sliced for train/validation (the skater frame is ~850k rows, so copies add up)
     X_all = df[cols].to_numpy(np.float32)
@@ -93,15 +95,23 @@ def _fit_count_models(df, targets, cols, params, baselines, trend_targets=(), ha
         for name, base in baselines(train, valid, target).items():
             m[f"baseline_{name}"] = _dev(y, base)
         m["p_at_least_one_logloss"] = log_loss((y >= 1).astype(int), np.clip(1 - np.exp(-mu), 1e-6, 1 - 1e-6), labels=[0, 1])
+        # out of sample: the validation model never saw these games (only their count picked its number of trees)
+        m["dispersion"] = fit_alpha(y, mu)
         metrics[target] = m
         print(f"  {target:>15s}  deviance={m['poisson_deviance']:.4f}  "
-              + "  ".join(f"{k}={v:.4f}" for k, v in m.items() if k.startswith("baseline_")))
+              + "  ".join(f"{k}={v:.4f}" for k, v in m.items() if k.startswith("baseline_"))
+              + f"  alpha={m['dispersion']['alpha']} (mle {m['dispersion']['alpha_mle']}, "
+              f"mom {m['dispersion']['alpha_mom']}, gain {m['dispersion']['loglik_gain']})")
 
         final = XGBRegressor(**(params | {"n_estimators": n_trees, "early_stopping_rounds": None}))
         final.fit(X_all, df[target], base_margin=_margin(df, margin), verbose=False,
                   sample_weight=_recency_weights(df["date"], half_life))
         models[target] = final
     return models, metrics
+
+def _dispersion(metrics: dict) -> dict:
+    """Per-target NB2 alpha for prop pricing (0 = Poisson), as fitted on the validation split."""
+    return {t: m["dispersion"]["alpha"] for t, m in metrics.items() if isinstance(m, dict) and "dispersion" in m}
 
 def _save(bundle: dict, path) -> None:
     # write then swap, so a request never loads a half-written file
@@ -153,7 +163,7 @@ def _fit_skaters(skaters: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
         metrics.update(met)
     trends = {t: F.latest_league_trend(df, t) for t in trend_targets}
     _save({"models": models, "features": cols, "league_rates": league_rates, "extra_stats": extra, "trends": trends,
-           "skater_ratings": F.latest_skater_ratings(ratings)}, SKATER_BUNDLE)
+           "skater_ratings": F.latest_skater_ratings(ratings), "dispersion": _dispersion(metrics)}, SKATER_BUNDLE)
     return metrics
 
 # ---------- goalies ----------
@@ -174,7 +184,7 @@ def _fit_goalies(goalies: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
     models, metrics = _fit_count_models(df, GOALIE_TARGETS, cols, GOALIE_POISSON_PARAMS, baselines, GOALIE_TREND_TARGETS)
     # live predictions use the latest league level (retrained nightly, and the trend moves slowly)
     trends = {t: F.latest_league_trend(df, t) for t in GOALIE_TREND_TARGETS}
-    _save({"models": models, "features": cols, "trends": trends}, GOALIE_BUNDLE)
+    _save({"models": models, "features": cols, "trends": trends, "dispersion": _dispersion(metrics)}, GOALIE_BUNDLE)
     return metrics
 
 # ---------- teams ----------

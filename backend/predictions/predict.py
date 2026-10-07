@@ -230,15 +230,27 @@ PROP_STATS = {"player_goals": "goals", "player_assists": "assists", "player_poin
 # player_power_play_points isn't priced: the model's pp_points counts 5-on-4 time only, while books settle on every
 # power-play strength (5-on-3, 4-on-3, ...), so it would show false under edges
 
-def prop_probability(expected: dict, prop_type: str, line: float, side: str) -> float | None:
+def prop_dispersion() -> dict:
+    """Negative-binomial alpha per stat for prop pricing, as fitted on each bundle's validation split at training
+    time (0 = Poisson). Config's PROP_DISPERSION fills in for bundles trained before alphas were saved, or missing."""
+    alphas = dict(PROP_DISPERSION)
+    for path in (SKATER_BUNDLE, GOALIE_BUNDLE):
+        if path.exists():
+            fitted = load_bundle(path).get("dispersion")
+            if fitted is not None:
+                alphas.update(fitted)
+    return alphas
+
+def prop_probability(expected: dict, prop_type: str, line: float, side: str, alphas: dict | None = None) -> float | None:
     """Chance the over/under (or yes) side of a prop wins under the model's rate for that stat. Counts are Poisson,
-    except stats measured to be over-dispersed (hits, blocks), which use a negative binomial with variance
-    mu(1 + alpha mu). Half-point lines can't push; a whole-number line's push counts as not winning."""
+    except stats whose fitted dispersion (`alphas`, default `prop_dispersion()`) is positive, which use a negative
+    binomial with variance mu(1 + alpha mu). Half-point lines can't push; a whole-number line's push counts as
+    not winning."""
     from scipy.stats import poisson, nbinom
     stat = PROP_STATS.get(prop_type)
     if stat is None or stat not in expected:
         return None
-    lam, alpha = expected[stat], PROP_DISPERSION.get(stat, 0.0)
+    lam, alpha = expected[stat], (prop_dispersion() if alphas is None else alphas).get(stat, 0.0)
     if alpha > 0:
         n = 1 / alpha
         cdf = lambda k: nbinom.cdf(k, n, n / (n + lam))

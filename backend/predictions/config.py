@@ -41,6 +41,11 @@ POISSON_PARAMS = {
 }
 GOALIE_POISSON_PARAMS = POISSON_PARAMS | {"min_child_weight": 20}
 
-# negative-binomial dispersion (variance = mu(1 + alpha mu)) for over-dispersed stats when pricing props;
-# measured on out-of-time predictions (hits var/mean 1.15-1.29, blocks ~1.07); everything else stays Poisson
+# negative-binomial dispersion (variance = mu(1 + alpha mu)) when pricing props. Training fits alpha per target on the
+# validation split and saves it in the bundle (predictions/dispersion.py); these hand-set values (measured on the
+# props-v2 test seasons) are only the fallback for bundles trained before that
 PROP_DISPERSION = {"hits": 0.12, "blocked_shots": 0.08}
+# fitted alphas are clamped to [0, DISPERSION_MAX_ALPHA]; the NB replaces the Poisson only where it raises the mean
+# validation log likelihood per row by at least DISPERSION_MIN_GAIN nats
+DISPERSION_MAX_ALPHA = 1.0
+DISPERSION_MIN_GAIN = 0.0005

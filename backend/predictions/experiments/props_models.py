@@ -1,7 +1,9 @@
 """Player models with market context: do market-implied team goals and the opposing starter help?
 Out of time: test 2024-25 (train ..2022, early-stop 2023) and 2025-26 (train ..2023, early-stop 2024).
     python -m predictions.experiments.props_models [--targets goals assists points shots_on_goal hits blocked_shots pp_points] [--goalies]
-Writes per-row out-of-sample predictions to /scratch/props_preds_{skater,goalie}.pkl for the prop benchmark.
+Writes per-row out-of-sample predictions to /scratch/props_preds_{skater,goalie}.pkl for the prop benchmark, with
+`alpha_{variant}_{target}`: the negative-binomial dispersion fitted on that fold's early-stopping season (as training
+does on its validation split), so the test season never informs the alpha that prices it.
 """
 import argparse
 import asyncio
@@ -15,6 +17,7 @@ from app.database import AsyncSessionLocal
 from app.models import GameOdds
 from predictions import features as F
 from predictions.config import POISSON_PARAMS, GOALIE_POISSON_PARAMS
+from predictions.dispersion import fit_alpha
 from predictions.train import _recency_weights
 from predictions.data import load_skater_logs, load_goalie_logs, load_team_stats, load_games
 
@@ -53,11 +56,14 @@ def run(df, targets, variants, params, trend=None):
                 mu_va = m.predict(vat[cols].astype(np.float32), base_margin=bm(vat))
                 mu_all = m.predict(te[cols].astype(np.float32), base_margin=bm(te))
                 te[f"pred_{name}_{t}"] = mu_all
+                disp = fit_alpha(vat[t].to_numpy(), mu_va)
+                te[f"alpha_{name}_{t}"] = disp["alpha"]
                 ok = te[t].notna().to_numpy()
                 mu, y = mu_all[ok], te[t].to_numpy()[ok]
                 r = {"dev": mean_poisson_deviance(y, np.clip(mu, 1e-6, None)),
                      "p1_logloss": log_loss((y >= 1).astype(int), np.clip(1 - np.exp(-mu), 1e-6, 1 - 1e-6), labels=[0, 1]),
-                     "valid_dev": mean_poisson_deviance(vat[t], np.clip(mu_va, 1e-6, None)), "trees": m.best_iteration + 1}
+                     "valid_dev": mean_poisson_deviance(vat[t], np.clip(mu_va, 1e-6, None)), "trees": m.best_iteration + 1,
+                     "dispersion": disp}
                 out.setdefault(name, {}).setdefault(t, {})[test_s] = r
         preds.append(te)
     return out, pd.concat(preds)
@@ -149,7 +155,8 @@ if __name__ == "__main__":
         del skaters, lineups
         out, preds = run(df, targets, variants, POISSON_PARAMS, trend=set(args.skater_trend))
         show(out, targets)
-        keep = ["game_id", "player_id", "season", "team", "opponent", "date"] + targets + [c for c in preds if c.startswith("pred_")]
+        keep = (["game_id", "player_id", "season", "team", "opponent", "date"] + targets
+                + [c for c in preds if c.startswith(("pred_", "alpha_"))])
         preds[keep].to_pickle(args.preds_out or ("/scratch/props_preds_skater_trend.pkl" if args.skater_trend else "/scratch/props_preds_skater.pkl"))
         report["skaters"] = out
     path = "/scratch/props_models_goalie.json" if args.goalies else "/scratch/props_models_skater.json"
