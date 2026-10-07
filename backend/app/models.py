@@ -436,3 +436,27 @@ class GameStarter(Base):
     status: Mapped[str] = mapped_column(nullable=False)
     source: Mapped[str] = mapped_column(nullable=False)
     fetched_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+class PlayerInjury(Base):
+    """ESPN's league-wide injury report, one snapshot per fetch (append-only): every listed player with the fetch
+    time, so the report known before any game can be rebuilt later (ESPN keeps no history). status is normalized
+    (external.espn.injuries.normalize_status): out / ir / ltir / suspended keep a player out of expected lineups,
+    day_to_day doesn't. No FK on player_id (None when the ESPN athlete isn't matched, e.g. minor leaguers)."""
+    __tablename__ = "player_injuries"
+    __table_args__ = (UniqueConstraint("fetched_at", "espn_athlete_id", name="uq_player_injuries"),)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    fetched_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    espn_athlete_id: Mapped[int] = mapped_column(nullable=False)
+    player_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    team: Mapped[str | None] = mapped_column(nullable=True)
+    full_name: Mapped[str | None] = mapped_column(nullable=True)
+    position: Mapped[str | None] = mapped_column(nullable=True)
+    status: Mapped[str] = mapped_column(nullable=False)
+    espn_status: Mapped[str | None] = mapped_column(nullable=True)
+    fantasy_status: Mapped[str | None] = mapped_column(nullable=True)
+    injury_type: Mapped[str | None] = mapped_column(nullable=True)
+    roster_status: Mapped[str | None] = mapped_column(nullable=True)
+    report_date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    return_date: Mapped[datetime.date | None] = mapped_column(nullable=True)
+    espn_injury_id: Mapped[int | None] = mapped_column(nullable=True)
+    comment: Mapped[str | None] = mapped_column(nullable=True)

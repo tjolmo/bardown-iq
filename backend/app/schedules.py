@@ -402,11 +402,36 @@ async def fetch_confirmed_starters(days: int = 1, game_day: datetime.date | None
     print(f"Starters: {written} team-games stored for {len(games)} games ({counts}); missing {len(problems)}: {problems[:10]}")
     return written
 
+async def fetch_injury_report() -> int:
+    """ESPN's league-wide injury report into player_injuries (one append-only snapshot per run), with ESPN athletes
+    matched to NHL ids. Players it lists out / IR / suspended leave the expected lineups of upcoming games. If ESPN
+    is down nothing is written and predictions keep using the last report (up to 36 hours old), then the previous
+    game's lineups. Returns rows written."""
+    from external.espn.injuries import fetch_injuries, match_injured_players
+    from .crud.player_injuries import insert_injury_snapshot
+    rows = await fetch_injuries()
+    if rows is None:
+        return 0
+    async with AsyncSessionLocal() as db:
+        players, _, _ = await get_player_match_data(db, get_current_season_start_year())
+        rows, unmatched = match_injured_players(build_player_index(players), rows, await get_known_athlete_ids(db))
+        written = await insert_injury_snapshot(db, rows)
+    # rebuild the cached prediction context on next use so it picks up the new report
+    from predictions import predict
+    predict._context["built_at"] = 0.0
+    statuses = {s: sum(r["status"] == s for r in rows) for s in sorted({r["status"] for r in rows})}
+    # minor leaguers on ESPN's list are often not in the players table; they aren't in any lineup anyway
+    print(f"Injuries: {written} listed players stored {statuses}; {len(unmatched)} not matched to NHL ids: "
+          f"{sorted(unmatched.items())[:15]}")
+    return written
+
 async def pregame_odds_pipeline():
     """Game lines and player props for today's games. ESPN posts player props only on game day, so the
     3am nightly run misses pre-game prices; this runs in the late afternoon (North American time).
-    Starting goalies go first so the props and predictions logged after them use the announced starters."""
+    Starting goalies and the injury report go first so the predictions logged after them use the announced
+    starters and drop injured players from the expected lineups."""
     await run_step("starting goalies", fetch_confirmed_starters)
+    await run_step("injury report", fetch_injury_report)
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("player prop odds", fetch_recent_player_prop_odds)
     # last: freezes today's predictions next to the market snapshot just fetched (forward test)
@@ -414,7 +439,8 @@ async def pregame_odds_pipeline():
 
 async def morning_odds_pipeline():
     """A late-morning (ET) price snapshot, so the price path has an early point between the open and the
-    afternoon log. Only ESPN (no metered Odds API calls)."""
+    afternoon log, and an injury report snapshot. Only ESPN (no metered Odds API calls)."""
+    await run_step("injury report", fetch_injury_report)
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("player prop odds", fetch_recent_player_prop_odds)
 

@@ -50,21 +50,48 @@ def _placeholder_team_rows(games: pd.DataFrame) -> pd.DataFrame:
                          "game_date": g.date, "is_home": is_home})
     return pd.DataFrame(rows)
 
-def _live_lineups(team_games: pd.DataFrame, skaters: pd.DataFrame, rosters: pd.DataFrame, ratings: pd.DataFrame) -> pd.DataFrame:
+def _live_lineups(team_games: pd.DataFrame, skaters: pd.DataFrame, rosters: pd.DataFrame, ratings: pd.DataFrame,
+                  out: pd.Series | None = None, upcoming=()) -> pd.DataFrame:
     """Expected lineups for every team-game: the previous game's lineup this season, or the current roster
-    for a team that hasn't played yet this season."""
+    for a team that hasn't played yet this season. In `upcoming` games, players the injury report lists out (`out`)
+    are replaced by the team's best healthy extra skater on the current roster (features.drop_listed_out)."""
+    out = out if out is not None else pd.Series(dtype="int64")
     lineups = F.expected_lineups(skaters, team_games)
     missing = team_games[~team_games.set_index(["game_id", "team"]).index.isin(lineups.set_index(["game_id", "team"]).index)]
-    return pd.concat([lineups, F.roster_lineups(rosters, missing, ratings)], ignore_index=True)
+    lineups = pd.concat([lineups, F.roster_lineups(rosters, missing, ratings)], ignore_index=True)
+    if out.empty:
+        return lineups
+    logged = skaters.drop_duplicates("player_id", keep="last") if "position" in skaters else pd.DataFrame(columns=["player_id", "position"])
+    positions = pd.concat([logged.set_index("player_id")["position"], rosters.set_index("player_id")["position"]])
+    positions = positions[~positions.index.duplicated(keep="last")]   # current roster position wins
+    candidates = rosters.merge(ratings[["player_id", "exp_toi"]], on="player_id", how="left")
+    return F.drop_listed_out(lineups, out, positions, candidates, game_ids=set(upcoming))
+
+def _injured_out(injuries: pd.DataFrame | None, skaters: pd.DataFrame, goalies: pd.DataFrame) -> pd.Series:
+    """Players the latest injury report keeps out (player_id -> last game day covered, features.listed_out), minus
+    those seen playing since their entry was updated."""
+    if injuries is None or injuries.empty:
+        return pd.Series(dtype="int64")
+    played = [df[["player_id", "game_date"]] for df in (skaters, goalies) if not df.empty]
+    last_played = pd.concat(played).groupby("player_id")["game_date"].max() if played else None
+    return F.listed_out(injuries, _today(), last_played)
 
 def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.DataFrame, skaters: pd.DataFrame,
-                   rosters: pd.DataFrame, odds: pd.DataFrame, team_mtime, known_starters: pd.DataFrame | None = None) -> dict:
+                   rosters: pd.DataFrame, odds: pd.DataFrame, team_mtime, known_starters: pd.DataFrame | None = None,
+                   injuries: pd.DataFrame | None = None) -> dict:
     placeholders = _placeholder_games(games, set(team_stats["game_id"]))
     team_games = F.build_team_games(pd.concat([team_stats, _placeholder_team_rows(placeholders)], ignore_index=True))
     team_feats = F.team_history_features(team_games)
+    # the injury report (player_injuries) applies to games not played yet; without one, lineups are as before
+    upcoming = set(placeholders.loc[placeholders["home_score"].isna() & (placeholders["date"] >= _today()), "id"])
+    season = int(games["season"].max())
+    out = _injured_out(injuries, skaters, goalies[goalies["season"] == season] if not goalies.empty else goalies)
     # starters: confirmed/probable (game_starters table) for upcoming games, else the projection; actual starters
-    # for played games, as in training
+    # for played games, as in training. A projected starter listed out gives way to the team's healthy goalie.
     picks = F.starter_picks(team_games, goalies, known_starters, prefer_actual=True) if not goalies.empty else None
+    if picks is not None and not out.empty:
+        recent = goalies[goalies["season"] >= season - 1]
+        picks = F.replace_out_starters(picks, out, team_games, recent, rosters, upcoming)
     starters = F.starter_features(team_games, goalies, picks=picks) if picks is not None else None
     win_probs: dict[int, float] = {}
     model_goals = None
@@ -78,7 +105,7 @@ def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.Da
     live = None
     if ratings is not None:
         current = team_games[team_games["season"] == team_games["season"].max()]
-        live = _live_lineups(current, skaters, rosters, ratings)
+        live = _live_lineups(current, skaters, rosters, ratings, out, upcoming)
         # the same lineups, per skater, for each player's teammate quality
         lineups = F.rated_lineups(live, ratings)
     if team_mtime is not None and live is not None:
@@ -98,7 +125,8 @@ def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.Da
     if picks is not None:
         picks = picks[picks["game_id"].isin(placeholders["id"])].set_index(["game_id", "team"])
     return {"team_feats": player_ctx, "win_probs": win_probs, "placeholders": placeholders, "lineups": lineups,
-            "starter_picks": picks}
+            "starter_picks": picks, "injured_out": out,
+            "injury_report_at": injuries["fetched_at"].max() if injuries is not None and not injuries.empty else None}
 
 async def _load_known_starters(db: AsyncSession) -> pd.DataFrame | None:
     """Confirmed / probable starters from game_starters (None if the table is missing or unreadable)."""
@@ -108,6 +136,16 @@ async def _load_known_starters(db: AsyncSession) -> pd.DataFrame | None:
     except Exception as e:
         await db.rollback()
         print(f"Could not load game_starters, using projected starters: {e!r}")
+        return None
+
+async def _load_injuries(db: AsyncSession) -> pd.DataFrame | None:
+    """The latest injury report fetched in the last 36 hours (None if there is none, or the table is unreadable)."""
+    from app.crud.player_injuries import load_injury_report
+    try:
+        return await load_injury_report(db)
+    except Exception as e:
+        await db.rollback()
+        print(f"Could not load player_injuries, using previous-game lineups: {e!r}")
         return None
 
 async def _team_context(db: AsyncSession) -> dict:
@@ -127,8 +165,9 @@ async def _team_context(db: AsyncSession) -> dict:
         odds = await load_game_odds(db)
         # the Elo loop, starter guesses and groupbys take a moment, so keep them off the event loop
         known_starters = await _load_known_starters(db)
+        injuries = await _load_injuries(db)
         built = await asyncio.to_thread(_build_context, team_stats, games, goalies, skaters, rosters, odds, team_mtime,
-                                        known_starters=known_starters)
+                                        known_starters=known_starters, injuries=injuries)
         _context.update(built, built_at=time.monotonic(), team_mtime=team_mtime)
         return _context
 
