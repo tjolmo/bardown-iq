@@ -1,7 +1,7 @@
 import datetime
 
 import pandas as pd
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,13 +55,19 @@ async def load_game_starters(db: AsyncSession, game_ids: list[int] | None = None
 
 
 async def get_games_missing_actual_starters(db: AsyncSession, min_season: int | None = None, max_season: int | None = None,
-                                            limit: int | None = None) -> list[int]:
+                                            limit: int | None = None, recheck_hours: float | None = None) -> list[int]:
     """Finished regular-season and playoff games (oldest first) without an actual starter stored for both teams.
-    Seasons are start years (2008 for 2008-09)."""
+    Seasons are start years (2008 for 2008-09). Games that started within `recheck_hours` are returned even when
+    stored: the afternoon starters step stores the play-by-play starter of games in progress, before the boxscore
+    flag can correct it (a starter hurt before facing a shot)."""
     have = (select(GameStarter.game_id).where(GameStarter.source == ACTUAL_SOURCE)
             .group_by(GameStarter.game_id).having(func.count() >= 2))
     game_type = Games.id // 10000 % 100
-    conds = [Games.game_state.in_(FINISHED_GAME_STATES), game_type.in_((2, 3)), Games.id.not_in(have)]
+    missing = Games.id.not_in(have)
+    if recheck_hours is not None:
+        since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=recheck_hours)
+        missing = or_(missing, Games.start_time >= since)
+    conds = [Games.game_state.in_(FINISHED_GAME_STATES), game_type.in_((2, 3)), missing]
     if min_season is not None:
         conds.append(Games.season >= min_season * 10000)
     if max_season is not None:

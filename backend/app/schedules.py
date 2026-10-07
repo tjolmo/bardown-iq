@@ -461,10 +461,12 @@ async def record_actual_starters(game_ids: list[int], concurrency: int = 4) -> d
 
 async def fetch_recent_actual_starters(max_games: int = 400) -> int:
     """Actual starters for this season's finished games that don't have them yet (normally last night's games;
-    a missed night is caught up on the next run). Returns team-games stored."""
+    a missed night is caught up on the next run), plus games of the last 36 hours again, since starters stored while
+    a game was in progress skip the boxscore check. Returns team-games stored."""
     from .crud.game_starters import get_games_missing_actual_starters
     async with AsyncSessionLocal() as db:
-        game_ids = await get_games_missing_actual_starters(db, min_season=get_current_season_start_year(), limit=max_games)
+        game_ids = await get_games_missing_actual_starters(db, min_season=get_current_season_start_year(), limit=max_games,
+                                                           recheck_hours=36)
     if not game_ids:
         return 0
     stats = await record_actual_starters(game_ids)

@@ -553,7 +553,7 @@ def drop_listed_out(lineups: pd.DataFrame, out: pd.Series | pd.DataFrame, positi
     return pd.concat([kept, fill[lineups.columns]], ignore_index=True)
 
 def replace_out_starters(picks: pd.DataFrame, out: pd.Series, team_games: pd.DataFrame, goalies: pd.DataFrame,
-                         rosters: pd.DataFrame, game_ids) -> pd.DataFrame:
+                         rosters: pd.DataFrame, game_ids, known: pd.DataFrame | None = None) -> pd.DataFrame:
     """Starter picks (starter_picks) for `game_ids` whose goalie is listed out for that game, unless the team
     confirmed him or he's already in net (status "actual"): the team's rostered healthy goalie with the most starts
     in `goalies` instead (status "projected")."""
@@ -562,7 +562,7 @@ def replace_out_starters(picks: pd.DataFrame, out: pd.Series, team_games: pd.Dat
     bad = (picks["game_id"].isin(game_ids) & ~picks["status"].isin(("confirmed", ACTUAL_STATUS))).to_numpy() & _is_out(rows, out)
     if not bad.any():
         return picks
-    starts = actual_starters(goalies)["player_id"].value_counts() if not goalies.empty else pd.Series(dtype=float)
+    starts = actual_starters(goalies, known)["player_id"].value_counts() if not goalies.empty else pd.Series(dtype=float)
     healthy = rosters[(rosters["position"] == "G") & ~rosters["player_id"].isin(out.index)]
     healthy = healthy.assign(starts=healthy["player_id"].map(starts).fillna(0)).sort_values("starts", ascending=False)
     best = healthy.drop_duplicates("team").set_index("team")["player_id"]

@@ -93,7 +93,7 @@ def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.Da
     picks = F.starter_picks(team_games, goalies, known_starters, prefer_actual=True) if not goalies.empty else None
     if picks is not None and not out.empty:
         recent = goalies[goalies["season"] >= season - 1]
-        picks = F.replace_out_starters(picks, out, team_games, recent, rosters, upcoming)
+        picks = F.replace_out_starters(picks, out, team_games, recent, rosters, upcoming, known_starters)
     starters = F.starter_features(team_games, goalies, picks=picks) if picks is not None else None
     win_probs: dict[int, float] = {}
     model_goals = None
@@ -134,9 +134,9 @@ async def _load_injuries(db: AsyncSession) -> pd.DataFrame | None:
     """The latest injury report fetched in the last 36 hours (None if there is none, or the table is unreadable)."""
     from app.crud.player_injuries import load_injury_report
     try:
-        return await load_injury_report(db)
+        async with db.begin_nested():   # savepoint: a failed read keeps the caller's pending writes
+            return await load_injury_report(db)
     except Exception as e:
-        await db.rollback()
         print(f"Could not load player_injuries, using previous-game lineups: {e!r}")
         return None
 

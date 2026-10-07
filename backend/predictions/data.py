@@ -100,8 +100,9 @@ async def load_known_starters(db: AsyncSession) -> pd.DataFrame | None:
     unreadable (features then fall back to the projection and the goalie with the most ice time)."""
     from app.crud.game_starters import load_game_starters
     try:
-        return await load_game_starters(db)
+        # a savepoint, so a failed read doesn't roll back the caller's pending writes (the prediction log's rows)
+        async with db.begin_nested():
+            return await load_game_starters(db)
     except Exception as e:
-        await db.rollback()
         print(f"Could not load game_starters, using projected starters: {e!r}")
         return None

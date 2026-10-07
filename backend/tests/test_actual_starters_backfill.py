@@ -44,5 +44,15 @@ def test_finished_games_without_both_actual_starters():
     assert missing(games, starters, max_season=2008, limit=2) == [2008020002, 2008020003]
 
 
+def test_recent_games_are_rechecked_even_when_stored():
+    # starters stored while a game was in progress get the post-game boxscore check on the next nightly run
+    games = [(2025020001, 20252026, "OFF"), (2025020002, 20252026, "OFF")]
+    starters = [(2025020001, "TOR", "nhl", "actual"), (2025020001, "MTL", "nhl", "actual")]
+    assert missing(games, starters) == [2025020002]
+    age = (datetime.datetime.now(datetime.timezone.utc) - NOW).total_seconds() / 3600
+    assert missing(games, starters, recheck_hours=age + 24) == [2025020001, 2025020002]
+    assert missing(games, starters, recheck_hours=age - 24) == [2025020002]
+
+
 def test_actual_starter_rows():
     assert actual_starter_rows(7, {"TOR": 1}) == [{"game_id": 7, "team": "TOR", "player_id": 1, "status": "actual", "source": "nhl"}]
