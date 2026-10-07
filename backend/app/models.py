@@ -390,6 +390,9 @@ class PlayerPredictionLog(Base):
     market_under_price: Mapped[float | None] = mapped_column(nullable=True)
     market_over_prob_novig: Mapped[float | None] = mapped_column(nullable=True)
     market_n_books: Mapped[int | None] = mapped_column(nullable=True)
+    # "espn" (player_prop_snapshots) or "odds_api" (odds_api_prop_quotes consensus, the fallback when ESPN has no
+    # two-sided line); NULL when neither had one. The scorer reads the closing line from the same feed.
+    market_source: Mapped[str | None] = mapped_column(nullable=True)
 
 class PredictionScore(Base):
     """Realized score of one logged prediction (kind "team" -> prediction_log.id, "player" -> player_prediction_log.id),

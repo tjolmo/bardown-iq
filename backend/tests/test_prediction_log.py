@@ -13,8 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.crud import odds_snapshots as S
-from app.models import (Base, GameOddsSnapshot, Games, GoalieGameLog, Player, PlayerPredictionLog, PlayerPropSnapshot,
-                        PredictionLog, PredictionScore, SkaterGameLog, Team)
+from app.models import (Base, GameOddsSnapshot, Games, GoalieGameLog, OddsApiPropQuote, Player, PlayerPredictionLog,
+                        PlayerPropSnapshot, PredictionLog, PredictionScore, SkaterGameLog, Team)
 from predictions import prediction_log as PL
 
 NOW = datetime.datetime(2026, 10, 8, 21, 0, tzinfo=datetime.timezone.utc)
@@ -44,6 +44,14 @@ def odds_row(gid, home_ml=-150, away_ml=130, p=0.58):
 def prop_row(gid, pid=1, prop="shots_on_goal", line=2.5, over=-120, under=100, book="DK"):
     return {"game_id": gid, "player_id": pid, "prop_type": prop, "line": line, "book": book,
             "over_price": over, "under_price": under, "sides_inferred": True, "espn_last_updated": None}
+
+
+def quote(gid, pid=1, key="player_goals", side="Over", line=0.5, odds=150, book="draftkings", first=None, last=None,
+          first_odds=None):
+    first = first or NOW - 3 * H
+    return {"game_id": gid, "player_id": pid, "prop_type": key, "over_under": side, "line": line, "bookmaker": book,
+            "odds": odds, "first_odds": odds if first_odds is None else first_odds, "first_seen": first,
+            "last_seen": last or first, "book_last_update": None, "event_id": "e"}
 
 
 # ---------- snapshots ----------
@@ -147,6 +155,48 @@ def test_main_prop_market_prefers_most_books():
     assert m["line"] == 2.5 and m["n_books"] == 2 and 0.5 < m["p_over"] < 0.56
 
 
+def test_odds_api_book_rows_pairs_sides_as_of():
+    t1, t2 = NOW - 5 * H, NOW - 2 * H
+    quotes = [
+        # draftkings seen at both fetches, price moved from +150 to +140
+        quote(1, side="Over", odds=140, first_odds=150, first=t1, last=t2),
+        quote(1, side="Under", odds=-170, first_odds=-180, first=t1, last=t2),
+        # fanduel pulled its market after the first fetch: gone at the later fetch
+        quote(1, side="Over", odds=160, book="fanduel", first=t1, last=t1),
+        quote(1, side="Under", odds=-200, book="fanduel", first=t1, last=t1),
+        quote(1, side="Yes", key="player_goal_scorer_anytime", odds=150, first=t2),   # not a priced market key
+        quote(1, side="Over", key="player_shots_on_goal", line=2.5, odds=-110, first=t2),   # one side only
+    ]
+    now = PL.odds_api_book_rows(quotes, NOW)
+    goals = now[(1, 1, "goals")]
+    assert [(r["book"], r["over_price"], r["under_price"]) for r in goals] == [("draftkings", 140, -170)]
+    assert goals[0]["captured_at"] == t2
+    assert now[(1, 1, "shots_on_goal")][0]["under_price"] is None
+    # between the fetches: both books, at their first-fetch prices
+    early = PL.odds_api_book_rows(quotes, t1 + H)
+    assert sorted((r["book"], r["over_price"]) for r in early[(1, 1, "goals")]) == [("draftkings", 150), ("fanduel", 160)]
+    assert PL.odds_api_book_rows(quotes, t1 - H) == {}
+
+
+def test_pick_market_prefers_espn_then_odds_api():
+    espn = [S_row(prop_row(1, line=2.5))]
+    api = [{"line": 3.5, "over_price": 110, "under_price": -130, "book": b, "captured_at": NOW - H}
+           for b in ("draftkings", "fanduel")]
+    m, source, at = PL.pick_market(espn, api)
+    assert source == "espn" and m["line"] == 2.5 and at == NOW - 2 * H
+    m, source, at = PL.pick_market([], api)
+    assert source == "odds_api" and m["line"] == 3.5 and m["n_books"] == 2 and at == NOW - H
+    # an ESPN one-sided price (no under) is no line: fall back
+    assert PL.pick_market([S_row(prop_row(1, under=None))], api)[1] == "odds_api"
+    assert PL.pick_market(None, None) == (None, None, None)
+
+
+def S_row(row: dict):
+    """A prop snapshot as the logger reads it (attribute access)."""
+    from types import SimpleNamespace
+    return SimpleNamespace(**row, captured_at=NOW - 2 * H)
+
+
 # ---------- log + score end to end ----------
 
 class FakePredict:
@@ -234,3 +284,49 @@ def test_score_predictions_end_to_end(fake_models):
     assert ("player", "saves") not in scores and first["player_waiting_logs"] == 2
     assert report["groups"]["team"]["n"] == 1 and report["groups"]["team"]["bets"]["n"] == 1
     assert report["groups"]["player:shots_on_goal"]["vs_market_close"]["n"] == 1
+
+
+def test_odds_api_fallback_logged_scored_and_reported(fake_models):
+    async def go(db):
+        await seed(db)
+        # ESPN has no goals line for player 1; two books on the Odds API do (fetched before the log)
+        db.add_all([OddsApiPropQuote(**quote(1, side=side, odds=odds, book=book, first=NOW - 2 * H))
+                    for book in ("draftkings", "fanduel") for side, odds in (("Over", 200), ("Under", -250))])
+        await db.commit()
+        await PL.log_predictions(db, game_date=20261008, now=NOW)
+        players = {p.stat: p for p in (await db.execute(select(PlayerPredictionLog))).scalars().all()}
+        # a later fetch before puck drop moves draftkings toward the over (upsert: latest price, new last_seen)
+        for q in (await db.execute(select(OddsApiPropQuote).where(OddsApiPropQuote.bookmaker == "draftkings"))).scalars():
+            q.odds, q.last_seen = (170 if q.over_under == "Over" else -210), NOW + H
+        g = await db.get(Games, 1)
+        g.game_state, g.home_score, g.away_score = "OFF", 3, 2
+        await db.commit()
+        later = NOW + 8 * H
+        db.add(SkaterGameLog(game_id=1, player_id=1, name="A S", season=2026, player_team_tricode="TOR",
+                             opposing_team_tricode="MTL", game_date=20261008, goals=1, primary_assists=0,
+                             secondary_assists=0, points=1, x_goals=0.4, toi=1000, high_danger_shots=1,
+                             shot_attempts=6, on_ice_x_goals_percentage=0.5, game_score=1.0, shots_on_goal=4,
+                             last_updated=NOW))
+        await db.commit()
+        # each row scored against its own feed's close (ESPN: its last pre-game capture; Odds API: the later fetch)
+        first = await PL.score_predictions(db, now=later)
+        scores = {s.stat: s for s in (await db.execute(select(PredictionScore))).scalars().all()}
+        report = await PL.model_report(db)
+        return players, first, scores, report
+    players, first, scores, report = run(go)
+    goals, sog = players["goals"], players["shots_on_goal"]
+    assert goals.market_source == "odds_api" and goals.market_line == 0.5 and goals.market_n_books == 2
+    assert goals.market_over_price == 200 and goals.market_captured_at.replace(tzinfo=datetime.timezone.utc) == NOW - 2 * H
+    assert sog.market_source == "espn" and players["saves"].market_source == "espn"
+    assert first["player_scored"] == 2
+    g = scores["goals"]
+    assert g.status == "scored" and g.outcome == 1 and g.market_prob_close > g.market_prob_logged
+    # the ESPN row's close is ESPN's (unchanged), not the Odds API's
+    assert scores["shots_on_goal"].market_prob_close == pytest.approx(scores["shots_on_goal"].market_prob_logged)
+    assert report["player_by_source"]["goals"]["odds_api"]["vs_market_close"]["n"] == 1
+    cov = report["coverage"]
+    assert cov["rows"] == 3 and cov["games"] == 1        # goals, shots_on_goal, saves (goals_against is unpriced)
+    assert cov["stats"]["goals"]["odds_api"] == {"n": 1, "share": 1.0}
+    assert cov["stats"]["shots_on_goal"]["espn"]["n"] == 1 and cov["stats"]["saves"]["espn"]["n"] == 1
+    assert cov["games_with_line"] == {"espn": 1, "odds_api": 1} and cov["games_without_any_line"] == 0
+    assert "goals_against" not in cov["stats"]          # unpriced stats aren't counted

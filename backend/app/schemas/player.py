@@ -163,3 +163,7 @@ class PlayerPropOut(BaseModel):
     # the model's chance this side wins, and its expected return per unit at these odds (None if no model yet)
     model_prob: float | None = None
     edge: float | None = None
+    # where the price came from: "odds_api" (best price across books at the consensus line) or "espn" (one book's
+    # market from ESPN's feed, e.g. hits, which the Odds API has no market for); book is set for ESPN rows
+    source: str = "odds_api"
+    book: str | None = None
