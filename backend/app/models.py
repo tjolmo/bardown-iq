@@ -43,7 +43,8 @@ class SkaterGameLog(Base):
     __tablename__ = "skater_game_logs"
     # composite primary key of game_id and player_id
     game_id: Mapped[int] = mapped_column(primary_key=True)
-    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), primary_key=True)
+    # indexed on its own too: live predictions load one player's history (the primary key only serves game_id lookups)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), primary_key=True, index=True)
     name: Mapped[str] = mapped_column(nullable=False)
     season: Mapped[int] = mapped_column(nullable=False)
     home_away: Mapped[str] = mapped_column(nullable=True)
@@ -460,3 +461,20 @@ class PlayerInjury(Base):
     return_date: Mapped[datetime.date | None] = mapped_column(nullable=True)
     espn_injury_id: Mapped[int | None] = mapped_column(nullable=True)
     comment: Mapped[str | None] = mapped_column(nullable=True)
+
+
+class SkaterGameShare(Base):
+    """Each skater's deployment shares in a game, as `predictions.features.skater_shares` computes them from every
+    skater's log of that game: PP time share, ice-time rank among his team's forwards or defensemen, shot and xG
+    shares. Rebuilt nightly after the log scrape (predictions/shares.py), so a live prediction reads the player's own
+    rows instead of every teammate's log of every past game. Per-game values only; the pre-game summaries are
+    still built at serve time. No FK: rows mirror skater_game_logs and are replaced with it."""
+    __tablename__ = "skater_game_shares"
+    # player first: the live lookup is by player; the refresh replaces whole games through the game_id index
+    player_id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    pp_share: Mapped[float | None] = mapped_column(nullable=True)
+    toi_rank: Mapped[float | None] = mapped_column(nullable=True)
+    sog_share: Mapped[float | None] = mapped_column(nullable=True)
+    xg_share: Mapped[float | None] = mapped_column(nullable=True)
+    computed_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)

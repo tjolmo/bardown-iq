@@ -7,7 +7,8 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 from . import features as F
 from .config import PROP_DISPERSION, SKATER_BUNDLE, GOALIE_BUNDLE, TEAM_BUNDLE, SKATER_TARGETS, GOALIE_TARGETS, GOALIE_TREND_TARGETS
-from .data import load_skater_logs, load_goalie_logs, load_team_stats, load_games, load_current_rosters, load_game_odds
+from .data import (load_skater_logs, load_goalie_logs, load_team_stats, load_games, load_current_rosters, load_game_odds,
+                   load_game_mates)
 
 _bundles: dict = {}
 
@@ -204,16 +205,36 @@ async def get_upcoming_game_prediction(game, db: AsyncSession) -> list[float] | 
         return None
     return [float(p_home), 1.0 - float(p_home)]
 
-async def _load_game_mates(db: AsyncSession, game_ids: list[int]) -> pd.DataFrame:
-    """Every skater's ice time, PP time, shots and xG in `game_ids` (the inputs of `features.skater_shares`)."""
+_shares_warned: list = []
+
+async def _load_shares(db: AsyncSession, player_id: int, game_ids: list[int]) -> pd.DataFrame | None:
+    """The player's stored shares (skater_game_shares) in `game_ids`; None if the table can't be read (not migrated)."""
     from sqlalchemy import select
-    from app.models import SkaterGameLog as S, Player
-    stmt = (select(S.game_id, S.player_team_tricode.label("team"), S.player_id, Player.position, S.toi, S.pp_toi,
-                   S.shots_on_goal, S.x_goals)
-            .join(Player, Player.id == S.player_id).where(S.game_id.in_(game_ids)))
-    rows = (await db.execute(stmt)).mappings().all()
-    return pd.DataFrame([dict(r) for r in rows], columns=["game_id", "team", "player_id", "position", "toi", "pp_toi",
-                                                          "shots_on_goal", "x_goals"])
+    from app.models import SkaterGameShare as T
+    cols = ["game_id", "player_id"] + F.SKATER_SHARE_STATS
+    stmt = select(*(getattr(T, c) for c in cols)).where(T.player_id == player_id, T.game_id.in_(game_ids))
+    try:
+        # a savepoint, so a failed read doesn't roll back the caller's pending writes (the prediction log's rows)
+        async with db.begin_nested():
+            rows = (await db.execute(stmt)).all()
+    except Exception as e:
+        if not _shares_warned:   # once per process: the afternoon log would print it for every skater
+            print(f"Could not read skater_game_shares, computing shares from game logs: {e!r}")
+            _shares_warned.append(True)
+        return None
+    df = pd.DataFrame(rows, columns=cols)
+    df[F.SKATER_SHARE_STATS] = df[F.SKATER_SHARE_STATS].astype(float)
+    return df
+
+async def _skater_shares(db: AsyncSession, player_id: int, game_ids: list[int]) -> pd.DataFrame:
+    """`features.skater_shares` rows for the player's past games: the stored rows (refreshed nightly), plus any game
+    not stored yet (scraped since the refresh, or no table) computed from every skater's log of that game."""
+    stored = await _load_shares(db, player_id, game_ids)
+    missing = game_ids if stored is None else sorted(set(game_ids) - set(stored["game_id"]))
+    if not missing:
+        return stored
+    computed = F.skater_shares(await load_game_mates(db, missing))
+    return computed if stored is None or stored.empty else pd.concat([stored, computed], ignore_index=True)
 
 async def predict_skater(db: AsyncSession, player_id: int, team: str, game) -> dict | None:
     """Expected goals/assists/points in `game` and the chance of at least one of each. None without history."""
@@ -223,12 +244,16 @@ async def predict_skater(db: AsyncSession, player_id: int, team: str, game) -> d
         return None
     ctx = await _team_context(db)
     upcoming = _upcoming_player_rows(logs, game, team, ctx["placeholders"])
-    # deployment shares need every skater of the player's past games, not just his own rows
+    # deployment shares need every skater of the player's past games, so they come precomputed per game
     uses_shares = any(c in bundle["features"] for c in F.SKATER_SHARE_COLUMNS)
-    shares = F.skater_shares(await _load_game_mates(db, logs["game_id"].unique().tolist())) if uses_shares else None
-    df, _ = F.skater_features(pd.concat([logs, upcoming], ignore_index=True), ctx["team_feats"],
-                              league_rates=bundle["league_rates"], extra_stats=bundle.get("extra_stats", ()),
-                              shares=shares, lineups=ctx.get("lineups"))
+    shares = await _skater_shares(db, int(player_id), logs["game_id"].unique().tolist()) if uses_shares else None
+    rows = pd.concat([logs, upcoming], ignore_index=True)
+    # teammate quality is computed per team-game, so only the player's games of the season's lineups matter
+    lineups = ctx.get("lineups")
+    if lineups is not None:
+        lineups = lineups[lineups["game_id"].isin(rows["game_id"])]
+    df, _ = F.skater_features(rows, ctx["team_feats"], league_rates=bundle["league_rates"],
+                              extra_stats=bundle.get("extra_stats", ()), shares=shares, lineups=lineups)
     X = df.loc[df["game_id"] == game.id, bundle["features"]].tail(1).astype(np.float32)
     trends = bundle.get("trends", {})
     expected = {t: float(m.predict(X, base_margin=np.log([trends[t]]) if t in trends else None)[0])
