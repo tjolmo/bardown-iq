@@ -30,6 +30,16 @@ async def load_skater_logs(db: AsyncSession, player_ids: list[int] | None = None
         stmt = stmt.where(SkaterGameLog.season.in_(seasons))
     return _frame((await db.execute(stmt)).mappings().all())
 
+async def load_game_mates(db: AsyncSession, game_ids: list[int]) -> pd.DataFrame:
+    """Every skater's ice time, PP time, shots and xG in `game_ids` (the inputs of `features.skater_shares`)."""
+    stmt = (select(SkaterGameLog.game_id, SkaterGameLog.player_team_tricode.label("team"), SkaterGameLog.player_id,
+                   Player.position, SkaterGameLog.toi, SkaterGameLog.pp_toi, SkaterGameLog.shots_on_goal,
+                   SkaterGameLog.x_goals)
+            .join(Player, Player.id == SkaterGameLog.player_id).where(SkaterGameLog.game_id.in_(game_ids)))
+    rows = (await db.execute(stmt)).mappings().all()
+    return pd.DataFrame([dict(r) for r in rows], columns=["game_id", "team", "player_id", "position", "toi", "pp_toi",
+                                                          "shots_on_goal", "x_goals"])
+
 async def load_current_rosters(db: AsyncSession) -> pd.DataFrame:
     stmt = select(Player.id.label("player_id"), Player.current_team_tri_code.label("team"), Player.position).where(
         Player.current_team_tri_code.is_not(None))

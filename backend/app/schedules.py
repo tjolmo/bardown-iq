@@ -293,6 +293,15 @@ async def train_models():
         await train_all_models(db)
 
 
+async def refresh_skater_shares():
+    """Per-game deployment shares of every game whose logs may have changed (predictions/shares.py), so live skater
+    predictions read them instead of every teammate's logs. Mirrors whatever the logs hold, so it runs even after a
+    failed scrape."""
+    from predictions.shares import refresh_skater_shares as refresh
+    async with AsyncSessionLocal() as db:
+        print(f"Skater shares: {await refresh(db)}")
+
+
 async def append_snapshots(name: str, insert_fn, db, rows: list[dict]) -> int:
     """Writes odds snapshots; a failure only loses this run's snapshots, never the current/opening tables."""
     try:
@@ -430,11 +439,13 @@ async def score_logged_predictions():
 
 async def nightly_pipeline():
     """Runs the nightly jobs in dependency order: schedules and rosters first (new games and players),
-    then game logs, then props (which need games and rosters), and finally training (which needs the fresh logs)."""
+    then game logs (and the skater shares stored from them), then props (which need games and rosters), and finally
+    training (which needs the fresh logs)."""
     await run_step("schedules", fetch_current_schedules_for_all_teams)
     await run_step("rosters", fetch_current_rosters_for_all_teams)
     logs_ok = await run_step("player logs", scrape_all_player_logs)
     logs_ok = await run_step("team stats", scrape_team_stats) and logs_ok
+    await run_step("skater shares", refresh_skater_shares)
     if not logs_ok:
         # models trained on a partial log load would be wrong, so keep yesterday's models this run
         print("Skipping training: player log scrape failed")
@@ -455,6 +466,7 @@ async def full_refresh():
     await run_step("rosters", fetch_current_rosters_for_all_teams)
     logs_ok = await run_step("player logs", scrape_all_player_logs)
     logs_ok = await run_step("team stats", scrape_team_stats) and logs_ok
+    await run_step("skater shares", refresh_skater_shares)
     if not logs_ok:
         print("Skipping training: player log scrape failed")
     await run_step("scores", fetch_current_scores)
