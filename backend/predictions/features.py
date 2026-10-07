@@ -353,17 +353,81 @@ SKATER_STATS = ["goals", "assists", "primary_assists", "secondary_assists", "poi
                 "shot_attempts", "high_danger_shots", "on_ice_x_goals_percentage", "game_score"]
 SKATER_RATE_STATS = ["goals", "assists", "points", "x_goals", "shot_attempts"]
 
+# each game's deployment and output as a share of the player's team that game; shares survive trades and
+# changing ice-time levels better than raw minutes
+SKATER_SHARE_STATS = ["pp_share", "toi_rank", "sog_share", "xg_share"]
+PP_SKATERS = 5
+
+def skater_shares(skaters: pd.DataFrame) -> pd.DataFrame:
+    """Per (game_id, player_id): power-play time as a share of the team's power-play time (team time = summed
+    skater PP time / 5), ice-time rank among the team's forwards or defensemen (1 = most), and share of the
+    team's shots on goal and xG. Needs every skater of each team-game; each value uses only that game, and the
+    prior-window summaries in `skater_features` make them pre-game."""
+    stats = ["toi", "pp_toi", "shots_on_goal", "x_goals"]
+    df = skaters.reindex(columns=["game_id", "team", "player_id", "position"] + stats)
+    df[stats] = df[stats].astype(float)
+    team = df.groupby(["game_id", "team"])
+    share = lambda col, scale=1.0: df[col] / (team[col].transform("sum") / scale).where(lambda s: s > 0)
+    out = df[["game_id", "player_id"]].copy()
+    out["pp_share"] = share("pp_toi", PP_SKATERS)
+    out["toi_rank"] = df.groupby(["game_id", "team", df["position"] == "D"])["toi"].rank(ascending=False)
+    out["sog_share"] = share("shots_on_goal")
+    out["xg_share"] = share("x_goals")
+    return out.drop_duplicates(["game_id", "player_id"])
+
+# expected game score / points of the other skaters in the player's expected lineup
+TEAMMATE_COLUMNS = ["teammates_game_score", "teammates_points"]
+
+def rated_lineups(lineups: pd.DataFrame, ratings: pd.DataFrame) -> pd.DataFrame:
+    """Expected lineups (`expected_lineups`) with each skater's pre-game rating, top 18 by expected ice time
+    as in `roster_ratings`."""
+    looked = pd.merge_asof(lineups.sort_values("date"), ratings, on="date", by="player_id", allow_exact_matches=False)
+    looked = looked.sort_values("exp_toi", ascending=False).groupby(["game_id", "team"]).head(LINEUP_SIZE)
+    return looked[["game_id", "team", "player_id", "exp_toi", "exp_game_score", "exp_points"]]
+
+def played_lineups(skaters: pd.DataFrame, ratings: pd.DataFrame) -> pd.DataFrame:
+    """`rated_lineups` for every team-game in the skater logs (training; live uses the team context's lineups)."""
+    tg = skaters[["game_id", "team", "season", "game_date"]].drop_duplicates(["game_id", "team"])
+    return rated_lineups(expected_lineups(skaters, tg.assign(date=_date(tg["game_date"]))), ratings)
+
+def teammate_quality(players: pd.DataFrame, lineups: pd.DataFrame) -> pd.DataFrame:
+    """Per (game_id, player_id) in `players`: summed pre-game ratings of his expected teammates, i.e. the rated
+    lineup without him (or its top 17 when he isn't in it, e.g. back from injury or a call-up)."""
+    stats = {"exp_game_score": "teammates_game_score", "exp_points": "teammates_points"}
+    lu = lineups.sort_values("exp_toi", ascending=False)
+    keys = ["game_id", "team"]
+    top17 = lu.groupby(keys).head(LINEUP_SIZE - 1).groupby(keys)[list(stats)].sum()
+    sums = lu.groupby(keys)[list(stats)].sum().join(top17, rsuffix="_17").reset_index()
+    own = lu[keys + ["player_id"] + list(stats)].rename(columns={s: f"{s}_own" for s in stats})
+    out = players[keys + ["player_id"]].drop_duplicates(["game_id", "player_id"])
+    out = out.merge(sums, on=keys, how="left").merge(own, on=keys + ["player_id"], how="left")
+    in_lineup = out["exp_game_score_own"].notna()
+    for s, name in stats.items():
+        out[name] = np.where(in_lineup, out[s] - out[f"{s}_own"], out[f"{s}_17"])
+    return out[["game_id", "player_id"] + TEAMMATE_COLUMNS]
+
 def skater_features(skaters: pd.DataFrame, team_feats: pd.DataFrame, league_rates: dict | None = None,
-                    extra_stats: tuple[str, ...] = ()) -> tuple[pd.DataFrame, dict]:
+                    extra_stats: tuple[str, ...] = (), shares: pd.DataFrame | None = None,
+                    lineups: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
     """`skaters`: one row per (player, game) with DB game-log columns plus position.
+    `shares`: `skater_shares` of every skater in these games (a player's own rows can't give team totals);
+    `lineups`: `rated_lineups` covering these games. Either one missing leaves its columns NaN.
     Returns the feature frame and the league per-60 rates used for shrinkage (so live prediction reuses them)."""
     df = skaters.copy()
     df["assists"] = df["primary_assists"] + df["secondary_assists"]
     df["date"] = _date(df["game_date"])
     df = df.sort_values(["player_id", "date", "game_id"]).reset_index(drop=True)
     df["is_defense"] = (df["position"] == "D").astype(float)
+    if shares is not None:
+        df = df.merge(shares[["game_id", "player_id"] + SKATER_SHARE_STATS], on=["game_id", "player_id"], how="left")
+    else:
+        df[SKATER_SHARE_STATS] = np.nan
+    if lineups is not None:
+        df = df.merge(teammate_quality(df, lineups), on=["game_id", "player_id"], how="left")
+    else:
+        df[TEAMMATE_COLUMNS] = np.nan
 
-    feats = _prior_features(df, "player_id", SKATER_STATS + list(extra_stats))
+    feats = _prior_features(df, "player_id", SKATER_STATS + list(extra_stats) + SKATER_SHARE_STATS)
     df = pd.concat([df, feats], axis=1)
     df["rest_days"] = _rest_days(df, "player_id")
     df["back_to_back"] = (df["rest_days"] <= 1).astype(float)
@@ -395,6 +459,8 @@ SKATER_FEATURE_COLUMNS = (
     + ["is_home", "is_defense", "rest_days", "back_to_back"]
     + OWN_CONTEXT + OPP_CONTEXT
 )
+
+SKATER_SHARE_COLUMNS = [f"{s}_{w}" for s in SKATER_SHARE_STATS for w in ("l5", "ewm", "season", "career")]
 
 # the original model's 10 inputs, kept so the old setup can be benchmarked on identical rows
 LEGACY_SKATER_FEATURE_COLUMNS = ["x_goals_l5", "toi_l5", "game_score_l5", "shot_attempts_l5",

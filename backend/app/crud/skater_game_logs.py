@@ -34,6 +34,8 @@ async def upsert_scraped_game_logs(db: AsyncSession, game_logs_data: list[Skater
                 "shots_on_goal": func.coalesce(stmt.excluded.shots_on_goal, SkaterGameLog.shots_on_goal),
                 "pp_toi": func.coalesce(stmt.excluded.pp_toi, SkaterGameLog.pp_toi),
                 "pp_points": func.coalesce(stmt.excluded.pp_points, SkaterGameLog.pp_points),
+                "hits": func.coalesce(stmt.excluded.hits, SkaterGameLog.hits),
+                "blocked_shots": func.coalesce(stmt.excluded.blocked_shots, SkaterGameLog.blocked_shots),
             }
         )
         await db.execute(stmt)

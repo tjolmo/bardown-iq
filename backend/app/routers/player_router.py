@@ -182,7 +182,7 @@ async def get_skater_prediction(player_id: int, db = Depends(get_db)):
             prob_goal=round(prediction["prob_goals"], 4),
             prob_assist=round(prediction["prob_assists"], 4),
             prob_point=round(prediction["prob_points"], 4),
-            shots_on_goal=round(prediction["shots_on_goal"], 2) if "shots_on_goal" in prediction else None,
+            **{k: round(prediction[k], 2) for k in ("shots_on_goal", "blocked_shots", "hits", "pp_points") if k in prediction},
         )
     except HTTPException:
         raise

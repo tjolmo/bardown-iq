@@ -15,4 +15,8 @@ class PlayerPropsResponse(BaseModel):
     last_name: str
     odds: float
     over_under: str
-    line: float
+    # yes/no markets (anytime goal scorer) have no point; they settle like over/under 0.5
+    line: float = 0.5
+    # which book quoted this price (Odds API bookmaker key, e.g. "draftkings") and when that book last updated it
+    bookmaker: str | None = None
+    book_last_update: datetime.datetime | None = None

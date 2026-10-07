@@ -74,7 +74,8 @@ async def get_player_props(event_id: str) -> list[PlayerPropsResponse]:
         params = {
             "apiKey": os.getenv("ODDS_API_KEY"),
             "regions": "us",
-            "markets": "player_points,player_assists,player_goals,player_total_saves",
+            # blocked shots and shots on goal added: blocks are the market where the model beat the prices (each market costs credits)
+            "markets": "player_points,player_assists,player_goals,player_total_saves,player_blocked_shots,player_shots_on_goal",
             "oddsFormat": "american"
         }
         results = await _get_json(client, f"{BASE_URL}/events/{event_id}/odds", params)
@@ -89,8 +90,10 @@ def parse_player_props(results: dict) -> list[PlayerPropsResponse]:
     """Flattens an event odds payload into props, skipping outcomes that are incomplete."""
     return_list = []
     for bookmaker in results.get("bookmakers", []):
+        book_key = bookmaker.get("key") or bookmaker.get("title")
         for market in bookmaker.get("markets", []):
             prop_type = market.get("key")
+            book_last_update = market.get("last_update") or bookmaker.get("last_update")
             for outcome in market.get("outcomes", []):
                 name = outcome.get("description")
                 split_name = name.split(' ') if isinstance(name, str) else []
@@ -104,9 +107,11 @@ def parse_player_props(results: dict) -> list[PlayerPropsResponse]:
                         prop_type=prop_type,
                         first_name=first_name,
                         last_name=last_name,
-                        line=outcome.get("point"),
+                        line=outcome["point"] if outcome.get("point") is not None else 0.5,  # yes/no markets have no point
                         odds=outcome.get("price"),
-                        over_under=outcome.get("name")
+                        over_under=outcome.get("name"),
+                        bookmaker=book_key,
+                        book_last_update=book_last_update,
                     ))
                 except ValidationError as e:
                     logger.warning("Skipping malformed Odds API outcome for %s: %s", name, e)

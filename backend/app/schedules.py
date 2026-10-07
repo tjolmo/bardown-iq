@@ -1,5 +1,6 @@
 from predictions.train import train_all_models
 from app.crud.props import upsert_player_props
+from app.crud.odds_api_prop_quotes import upsert_odds_api_prop_quotes
 from app.schemas.player import PlayerPropOut
 from app.crud.players import get_players_on_teams
 from app.player_matching import index_players_by_name, match_player
@@ -248,12 +249,17 @@ async def fetch_current_player_props():
                 player_props = await get_player_props(event.event_id)
                 players_by_name = index_players_by_name(await get_players_on_teams(db, potential_tri_codes))
                 props_to_upsert = []
+                quotes = []
                 unmatched = {}
                 for prop in player_props:
                     player, reason = match_player(players_by_name, prop.first_name, prop.last_name, prop.prop_type)
                     if player is None:
                         unmatched[f"{prop.first_name} {prop.last_name}"] = reason
                         continue
+                    quotes.append({"game_id": game_id, "player_id": player.id, "prop_type": prop.prop_type,
+                                   "over_under": prop.over_under, "line": prop.line, "odds": prop.odds,
+                                   "bookmaker": prop.bookmaker, "book_last_update": prop.book_last_update,
+                                   "event_id": event.event_id})
                     props_to_upsert.append(PlayerPropOut(
                         game_id=game_id,
                         player_id=player.id,
@@ -268,6 +274,13 @@ async def fetch_current_player_props():
                 if len(props_to_upsert) > 0:
                     # same prop from several bookmakers: keep consensus line at the best price
                     await upsert_player_props(db, select_best_props(props_to_upsert))
+                    # and every book's own quote, for line-shopping / consensus backtests later; props are already
+                    # committed, so a failure here only loses the quotes
+                    try:
+                        await upsert_odds_api_prop_quotes(db, quotes)
+                    except Exception as e:
+                        await db.rollback()
+                        print(f"Saved props but failed to store quotes for event {event.event_id}: {e}")
             except Exception as e:
                 # one bad event must not stop props for the remaining games
                 await db.rollback()

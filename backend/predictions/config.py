@@ -10,9 +10,9 @@ TEAM_BUNDLE = MODEL_DIR / "team.joblib"
 METRICS_PATH = MODEL_DIR / "metrics.json"
 
 # one Poisson model per stat; P(at least one) = 1 - exp(-expected), so counts and probabilities always agree
-SKATER_TARGETS = ["goals", "assists", "points", "shots_on_goal"]
+SKATER_TARGETS = ["goals", "assists", "points", "shots_on_goal", "hits", "blocked_shots", "pp_points"]
 # skater stats beyond the core box score (stored since the shots/power-play backfill), used as extra inputs
-SKATER_EXTRA_STATS = ("shots_on_goal", "pp_toi", "pp_points")
+SKATER_EXTRA_STATS = ("shots_on_goal", "pp_toi", "pp_points", "hits", "blocked_shots")
 # shots per skater fell ~10% from 2023 to 2025; the league trend keeps shots-on-goal predictions unbiased
 SKATER_TREND_TARGETS = ["shots_on_goal"]
 GOALIE_TARGETS = ["goals_against", "sog", "saves"]
@@ -40,3 +40,7 @@ POISSON_PARAMS = {
     "early_stopping_rounds": 150,
 }
 GOALIE_POISSON_PARAMS = POISSON_PARAMS | {"min_child_weight": 20}
+
+# negative-binomial dispersion (variance = mu(1 + alpha mu)) for over-dispersed stats when pricing props;
+# measured on out-of-time predictions (hits var/mean 1.15-1.29, blocks ~1.07); everything else stays Poisson
+PROP_DISPERSION = {"hits": 0.12, "blocked_shots": 0.08}

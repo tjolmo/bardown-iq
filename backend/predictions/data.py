@@ -20,6 +20,7 @@ async def load_skater_logs(db: AsyncSession, player_ids: list[int] | None = None
             SkaterGameLog.x_goals, SkaterGameLog.toi, SkaterGameLog.shot_attempts, SkaterGameLog.high_danger_shots,
             SkaterGameLog.on_ice_x_goals_percentage, SkaterGameLog.game_score,
             SkaterGameLog.shots_on_goal, SkaterGameLog.pp_toi, SkaterGameLog.pp_points,
+            SkaterGameLog.hits, SkaterGameLog.blocked_shots,
         )
         .join(Player, Player.id == SkaterGameLog.player_id)
     )

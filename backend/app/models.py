@@ -62,6 +62,8 @@ class SkaterGameLog(Base):
     shots_on_goal: Mapped[int | None] = mapped_column(nullable=True)
     pp_toi: Mapped[float | None] = mapped_column(nullable=True)  # 5on4 ice time, seconds
     pp_points: Mapped[int | None] = mapped_column(nullable=True)  # 5on4 points
+    hits: Mapped[int | None] = mapped_column(nullable=True)
+    blocked_shots: Mapped[int | None] = mapped_column(nullable=True)  # shots blocked by the player
     last_updated: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
     player: Mapped["Player"] = relationship("Player", back_populates="game_logs")
 
@@ -279,3 +281,23 @@ class PlayerPropOdds(Base):
     sides_inferred: Mapped[bool] = mapped_column(nullable=False, default=False)
     espn_last_updated: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_updated: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
+
+class OddsApiPropQuote(Base):
+    """Every player prop quote the Odds API returns: one bookmaker, one side, one line (fetched going forward).
+
+    `props` keeps only the consensus-line best price; this table keeps each book's price so line shopping and
+    consensus fair probabilities can be backtested later. Each run overwrites `odds`/`last_seen`/`book_last_update`;
+    `first_odds`/`first_seen` keep the price from the first fetch that saw this quote (an opening-ish price)."""
+    __tablename__ = "odds_api_prop_quotes"
+    game_id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), primary_key=True, index=True)
+    prop_type: Mapped[str] = mapped_column(primary_key=True)      # Odds API market key, e.g. player_points
+    over_under: Mapped[str] = mapped_column(primary_key=True)     # "Over" / "Under" (or "Yes" for one-sided markets)
+    line: Mapped[float] = mapped_column(primary_key=True)
+    bookmaker: Mapped[str] = mapped_column(primary_key=True)      # Odds API bookmaker key, e.g. draftkings
+    odds: Mapped[float] = mapped_column(nullable=False)           # American odds at the latest fetch
+    first_odds: Mapped[float] = mapped_column(nullable=False)
+    first_seen: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    book_last_update: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    event_id: Mapped[str | None] = mapped_column(nullable=True)

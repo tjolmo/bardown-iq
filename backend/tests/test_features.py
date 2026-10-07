@@ -91,3 +91,12 @@ def test_roster_lineups_pick_12_forwards_and_6_defense():
     games = pd.DataFrame({"game_id": [200], "team": ["AAA"], "date": pd.to_datetime(["2025-10-01"])})
     picked = F.roster_lineups(rosters, games, ratings).merge(rosters, on=["player_id", "team"])
     assert picked["position"].value_counts().to_dict() == {"C": 12, "D": 6}
+
+def test_team_training_rows_include_playoffs():
+    from predictions.train import _team_training_rows
+    df = pd.DataFrame({
+        "game_id": [2024020001, 2024030111, 2024010001, 2024020002, 2024020003],
+        "home_win": [1.0, 0.0, 1.0, np.nan, 1.0], "home_games_season": [5, 85, 1, 6, np.nan],
+    })
+    # regular season and playoffs; not preseason, unplayed games or rows without team history
+    assert list(_team_training_rows(df)["game_id"]) == [2024020001, 2024030111]

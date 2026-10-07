@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import gc
 import json
 import os
 import joblib
@@ -59,16 +60,27 @@ def _time_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 def _margin(df, col):
     return np.log(df[col].to_numpy()) if col else None
 
-def _fit_count_models(df, targets, cols, params, baselines, trend_targets=()) -> tuple[dict, dict]:
-    """Fits one Poisson model per target: early-stopped on the held-out recent games, then refit on everything."""
+def _recency_weights(dates: pd.Series, half_life: float | None):
+    """Sample weights halving every `half_life` seasons of age before the latest date (None: unweighted)."""
+    if not half_life:
+        return None
+    return 0.5 ** ((dates.max() - dates).dt.days.to_numpy() / 365.25 / half_life)
+
+def _fit_count_models(df, targets, cols, params, baselines, trend_targets=(), half_life=None) -> tuple[dict, dict]:
+    """Fits one Poisson model per target: early-stopped on the held-out recent games, then refit on everything.
+    `half_life` (seasons) down-weights older games."""
     train, valid = _time_split(df)
-    X_train, X_valid, X_all = (d[cols].astype(np.float32) for d in (train, valid, df))
+    # one float32 matrix, sliced for train/validation (the skater frame is ~850k rows, so copies add up)
+    X_all = df[cols].to_numpy(np.float32)
+    in_train = df.index.isin(train.index)
+    X_train, X_valid = X_all[in_train], X_all[~in_train]
     models, metrics = {}, {"train_rows": len(train), "valid_rows": len(valid)}
     for target in targets:
         margin = f"trend_{target}" if target in trend_targets else None
         model = XGBRegressor(**params)
         model.fit(X_train, train[target], base_margin=_margin(train, margin), eval_set=[(X_valid, valid[target])],
-                  base_margin_eval_set=[_margin(valid, margin)] if margin else None, verbose=False)
+                  base_margin_eval_set=[_margin(valid, margin)] if margin else None, verbose=False,
+                  sample_weight=_recency_weights(train["date"], half_life))
         mu = model.predict(X_valid, base_margin=_margin(valid, margin))
         y = valid[target].to_numpy()
         n_trees = model.best_iteration + 1
@@ -81,7 +93,8 @@ def _fit_count_models(df, targets, cols, params, baselines, trend_targets=()) ->
               + "  ".join(f"{k}={v:.4f}" for k, v in m.items() if k.startswith("baseline_")))
 
         final = XGBRegressor(**(params | {"n_estimators": n_trees, "early_stopping_rounds": None}))
-        final.fit(X_all, df[target], base_margin=_margin(df, margin), verbose=False)
+        final.fit(X_all, df[target], base_margin=_margin(df, margin), verbose=False,
+                  sample_weight=_recency_weights(df["date"], half_life))
         models[target] = final
     return models, metrics
 
@@ -98,8 +111,16 @@ def _dev(y, mu) -> float:
 
 def _fit_skaters(skaters: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
     extra = tuple(c for c in SKATER_EXTRA_STATS if c in skaters and skaters[c].notna().any())
-    df, league_rates = F.skater_features(skaters, team_feats, extra_stats=extra)
+    # float32 halves the memory of the ~850k-row feature frame (64-bit floats ran a 7.6 GB Docker VM out of memory)
+    skaters = skaters.astype({c: np.float32 for c in skaters.select_dtypes("number").columns
+                              if c not in ("game_id", "player_id", "season", "game_date")})
+    # deployment shares and teammate quality come from every skater's rows, so they're built before filtering
+    ratings = F.skater_ratings(skaters)
+    lineups = F.played_lineups(skaters, ratings)
+    df, league_rates = F.skater_features(skaters, team_feats, extra_stats=extra, shares=F.skater_shares(skaters),
+                                         lineups=lineups)
     df = df[df["games_career"] >= 1]    # a player's first game has no history to predict from
+    del lineups
     targets = [t for t in SKATER_TARGETS if t in df and df[t].notna().any()]
     trend_targets = [t for t in SKATER_TREND_TARGETS if t in targets]
     for t in trend_targets:
@@ -112,7 +133,13 @@ def _fit_skaters(skaters: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
         return out
 
     print("Training skater models")
-    cols = F.SKATER_FEATURE_COLUMNS + F.MARKET_CONTEXT + [f"{s}_{w}" for s in extra for w in ("l5", "ewm", "season", "career")]
+    cols = (F.SKATER_FEATURE_COLUMNS + F.MARKET_CONTEXT + [f"{s}_{w}" for s in extra for w in ("l5", "ewm", "season", "career")]
+            + F.SKATER_SHARE_COLUMNS + F.TEAMMATE_COLUMNS)
+    # keep only what the fits need
+    keep = list(dict.fromkeys(cols + targets + ["date"] + [f"trend_{t}" for t in trend_targets]
+                              + [f"exp_{t}" for t in targets if f"exp_{t}" in df]))
+    df = df[keep].astype({c: np.float32 for c in cols if df[c].dtype == np.float64})
+    gc.collect()
     models, metrics = {}, {}
     for t in targets:
         # a few old rows lack the newer stats; each model trains on the rows that have its target
@@ -120,8 +147,8 @@ def _fit_skaters(skaters: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
         models.update(m)
         metrics.update(met)
     trends = {t: F.latest_league_trend(df, t) for t in trend_targets}
-    _save({"models": models, "features": cols, "league_rates": league_rates, "extra_stats": extra, "trends": trends},
-          SKATER_BUNDLE)
+    _save({"models": models, "features": cols, "league_rates": league_rates, "extra_stats": extra, "trends": trends,
+           "skater_ratings": F.latest_skater_ratings(ratings)}, SKATER_BUNDLE)
     return metrics
 
 # ---------- goalies ----------
@@ -150,11 +177,16 @@ def _fit_goalies(goalies: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
 def _team_logistic():
     return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), LogisticRegression(max_iter=1000))
 
+def _team_training_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Finished regular-season and playoff games (types 02, 03) with team history. Live prediction scores both,
+    and adding playoff games (no playoff flag) cut playoff log loss by 0.0026 on 2019-25 without hurting the
+    regular season."""
+    nhl = (df["game_id"] // 10000 % 100).isin([2, 3])
+    return df[nhl & df["home_win"].notna() & df["home_games_season"].notna()].copy()
+
 def _fit_teams(games: pd.DataFrame, team_feats: pd.DataFrame, side_feats: list, odds: pd.DataFrame,
                latest_ratings: pd.DataFrame) -> dict:
-    df = F.build_team_model_frame(games, team_feats, side_feats)
-    regular = df["game_id"] // 10000 % 100 == 2
-    df = df[regular & df["home_win"].notna() & df["home_games_season"].notna()].copy()
+    df = _team_training_rows(F.build_team_model_frame(games, team_feats, side_feats))
     df["date"] = pd.to_datetime(df["date"].astype(str), format="%Y%m%d")
     df["home_win"] = df["home_win"].astype(int)
     train, valid = _time_split(df)

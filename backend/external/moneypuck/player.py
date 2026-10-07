@@ -161,7 +161,7 @@ def scrape_all_skater_game_logs(season: int) -> list[SkaterGameLogResponse] | No
         'I_F_goals', 'I_F_primaryAssists', 'I_F_secondaryAssists', 'I_F_points',
         'I_F_xGoals', 'icetime', 'I_F_highDangerShots', 
         'I_F_shotAttempts', 'onIce_xGoalsPercentage', 'gameScore',
-        'I_F_shotsOnGoal',
+        'I_F_shotsOnGoal', 'I_F_hits', 'shotsBlockedByPlayer',
     ]
     # download the zip file and unpack the csv
     try:

@@ -29,13 +29,15 @@ SKATER_COLS = [
     'I_F_goals', 'I_F_primaryAssists', 'I_F_secondaryAssists', 'I_F_points',
     'I_F_xGoals', 'icetime', 'I_F_highDangerShots',
     'I_F_shotAttempts', 'onIce_xGoalsPercentage', 'gameScore', 'I_F_shotsOnGoal',
+    'I_F_hits', 'shotsBlockedByPlayer',
 ]
+N_CORE = 19   # columns before the optional shots/hits/blocks fields
 
 
 def _skater_row(player_id=8478402, game_id=2025020001, situation="all", points=2, icetime=1200, sog=4,
-                team="EDM", opp="CGY", season=2025):
+                team="EDM", opp="CGY", season=2025, hits=3, blocks=1):
     return [player_id, season, "Connor McDavid", game_id, "HOME", team, opp, 20251008, situation,
-            1, 1, 0, points, 0.8, icetime, 2, 6, 0.55, 1.9, sog]
+            1, 1, 0, points, 0.8, icetime, 2, 6, 0.55, 1.9, sog, hits, blocks]
 
 
 def _patch_skater_zip(monkeypatch, rows, season=2025):
@@ -92,11 +94,56 @@ def test_skater_scrape_keeps_legacy_tricodes_with_pp_join(monkeypatch):
 
 def test_skater_response_new_fields_optional():
     from external.moneypuck.response_models import SkaterGameLogResponse
-    row = dict(zip(SKATER_COLS[:-1], _skater_row()[:-1]))
+    row = dict(zip(SKATER_COLS[:N_CORE], _skater_row()[:N_CORE]))
     r = SkaterGameLogResponse.model_validate(row)
     assert r.shots_on_goal is None and r.pp_toi is None and r.pp_points is None
+    assert r.hits is None and r.blocked_shots is None
     r = SkaterGameLogResponse.model_validate({**row, "I_F_shotsOnGoal": float("nan")})
     assert r.shots_on_goal is None
+    r = SkaterGameLogResponse.model_validate({**row, "I_F_hits": float("nan"), "shotsBlockedByPlayer": float("nan")})
+    assert r.hits is None and r.blocked_shots is None
+    r = SkaterGameLogResponse.model_validate({**row, "I_F_hits": 4.0, "shotsBlockedByPlayer": 2.0})
+    assert (r.hits, r.blocked_shots) == (4, 2)
+
+
+def test_skater_scrape_hits_and_blocks_from_all_situation(monkeypatch):
+    rows = [
+        _skater_row(player_id=1, game_id=10, situation="all", hits=5, blocks=3),
+        _skater_row(player_id=1, game_id=10, situation="5on4", icetime=120, hits=1, blocks=0),
+        _skater_row(player_id=1, game_id=10, situation="5on5", icetime=900, hits=4, blocks=2),
+        _skater_row(player_id=2, game_id=10, situation="all", hits=0, blocks=0),
+    ]
+    _patch_skater_zip(monkeypatch, rows)
+    by_key = {(r.player_id, r.game_id): r for r in mp.scrape_all_skater_game_logs(2025)}
+    assert len(by_key) == 2
+    assert (by_key[(1, 10)].hits, by_key[(1, 10)].blocked_shots) == (5, 3)
+    assert (by_key[(2, 10)].hits, by_key[(2, 10)].blocked_shots) == (0, 0)
+
+
+def test_skater_upsert_includes_hits_and_blocks():
+    import asyncio
+    from sqlalchemy.dialects import postgresql
+    from external.moneypuck.response_models import SkaterGameLogResponse
+    from app.crud.skater_game_logs import upsert_scraped_game_logs
+
+    class FakeSession:
+        def __init__(self):
+            self.stmts = []
+        async def execute(self, stmt):
+            self.stmts.append(stmt)
+        async def commit(self):
+            pass
+
+    log = SkaterGameLogResponse.model_validate(dict(zip(SKATER_COLS, _skater_row(hits=6, blocks=2))))
+    db = FakeSession()
+    asyncio.run(upsert_scraped_game_logs(db, [log]))
+    (stmt,) = db.stmts
+    compiled = stmt.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+    assert "coalesce(excluded.hits, skater_game_logs.hits)" in sql
+    assert "coalesce(excluded.blocked_shots, skater_game_logs.blocked_shots)" in sql
+    params = compiled.params
+    assert params["hits_m0"] == 6 and params["blocked_shots_m0"] == 2
 
 
 def _zip_with(*names):
