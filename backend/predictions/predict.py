@@ -7,7 +7,7 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 from . import features as F
 from .config import SKATER_BUNDLE, GOALIE_BUNDLE, TEAM_BUNDLE, SKATER_TARGETS, GOALIE_TARGETS, GOALIE_TREND_TARGETS
-from .data import load_skater_logs, load_goalie_logs, load_team_stats, load_games
+from .data import load_skater_logs, load_goalie_logs, load_team_stats, load_games, load_current_rosters
 
 _bundles: dict = {}
 
@@ -29,7 +29,10 @@ _context: dict = {"built_at": 0.0}
 _context_lock = asyncio.Lock()
 
 def _today() -> int:
-    return int(datetime.date.today().strftime("%Y%m%d"))
+    """The current NHL game day. Game dates are North American, so UTC shifted back 12 hours keeps tonight's
+    games "today" until noon UTC instead of dropping them at midnight UTC (the container's clock)."""
+    now = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=12)
+    return int(now.strftime("%Y%m%d"))
 
 def _placeholder_games(games: pd.DataFrame, played_ids: set) -> pd.DataFrame:
     """Games without game logs that still belong in team history: upcoming games (to compute their pre-game
@@ -47,15 +50,26 @@ def _placeholder_team_rows(games: pd.DataFrame) -> pd.DataFrame:
                          "game_date": g.date, "is_home": is_home})
     return pd.DataFrame(rows)
 
-def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.DataFrame, team_mtime) -> dict:
+def _live_roster_ratings(team_games: pd.DataFrame, skaters: pd.DataFrame, rosters: pd.DataFrame, ratings: pd.DataFrame) -> pd.DataFrame:
+    """Roster ratings for every team-game, from the previous game's lineup this season, or the current roster
+    for a team that hasn't played yet this season."""
+    lineups = F.expected_lineups(skaters, team_games)
+    missing = team_games[~team_games.set_index(["game_id", "team"]).index.isin(lineups.set_index(["game_id", "team"]).index)]
+    lineups = pd.concat([lineups, F.roster_lineups(rosters, missing, ratings)], ignore_index=True)
+    return F.roster_ratings(lineups, ratings)
+
+def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.DataFrame, skaters: pd.DataFrame,
+                   rosters: pd.DataFrame, team_mtime) -> dict:
     placeholders = _placeholder_games(games, set(team_stats["game_id"]))
     team_games = F.build_team_games(pd.concat([team_stats, _placeholder_team_rows(placeholders)], ignore_index=True))
     team_feats = F.team_history_features(team_games)
     win_probs: dict[int, float] = {}
     if team_mtime is not None:
         bundle = load_bundle(TEAM_BUNDLE)
-        starters = F.starter_features(team_games, goalies) if not goalies.empty else None
-        frame = F.build_team_model_frame(games, team_feats, starters)
+        side_feats = [F.starter_features(team_games, goalies)] if not goalies.empty else []
+        current = team_games[team_games["season"] == team_games["season"].max()]
+        side_feats.append(_live_roster_ratings(current, skaters, rosters, bundle["skater_ratings"]))
+        frame = F.build_team_model_frame(games, team_feats, side_feats)
         frame = frame[frame["home_score"].isna() & (frame["date"] >= _today()) & frame["home_games_season"].notna()]
         if not frame.empty:
             p = bundle["model"].predict_proba(frame[bundle["features"]])[:, 1]
@@ -73,8 +87,11 @@ async def _team_context(db: AsyncSession) -> dict:
         if team_stats.empty or games.empty:
             raise LookupError("No team stats or games in the DB to predict from")
         goalies = await load_goalie_logs(db)
+        # lineups only need this season's games; player ratings come from the saved team model
+        skaters = await load_skater_logs(db, seasons=[int(games["season"].max())])
+        rosters = await load_current_rosters(db)
         # the Elo loop, starter guesses and groupbys take a moment, so keep them off the event loop
-        built = await asyncio.to_thread(_build_context, team_stats, games, goalies, team_mtime)
+        built = await asyncio.to_thread(_build_context, team_stats, games, goalies, skaters, rosters, team_mtime)
         _context.update(built, built_at=time.monotonic(), team_mtime=team_mtime)
         return _context
 

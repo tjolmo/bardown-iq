@@ -3,6 +3,8 @@ import datetime
 import os
 import sys
 
+import pytest
+
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -55,7 +57,9 @@ def test_rows_only_for_matched_games_with_a_price():
     assert set(rows) == {2025020001, 2025020003}
     tor = rows[2025020001]
     assert tor["n_books"] == 2 and tor["books"] == "A|B"
-    assert tor["home_moneyline"] == -145 and tor["espn_event_id"] == 1
+    # median on the decimal scale: (1/1.5+1 + 1/1.4+1)/2 -> -144.8
+    assert tor["home_moneyline"] == pytest.approx(-144.83, abs=0.01) and tor["espn_event_id"] == 1
+    assert tor["open_home_moneyline"] is None and tor["open_total_line"] is None
     assert 0.5 < tor["home_prob_novig"] < 0.6
     assert (tor["home_team_tri_code"], tor["away_team_tri_code"], tor["total_line"]) == ("TOR", "MTL", 6.5)
     assert rows[2025020003]["date"] == 20251009
@@ -70,7 +74,8 @@ def test_upsert_statement_shape():
              "home_prob_novig": 0.55, "n_books": 1, "extra": "ignored"}]
     sql = str(game_odds_upsert_stmt(rows).compile(dialect=postgresql.dialect()))
     assert "ON CONFLICT (game_id) DO UPDATE" in sql
-    for col in ("home_prob_novig", "open_home_prob_novig", "total_line", "books", "espn_event_id"):
+    for col in ("home_prob_novig", "open_home_prob_novig", "open_home_moneyline", "open_away_moneyline",
+                "total_line", "open_total_line", "books", "espn_event_id"):
         assert f"{col} = excluded.{col}" in sql
     assert "last_updated = %(param_1)s" in sql  # refreshed to now on every upsert
     assert "game_id = excluded.game_id" not in sql and "extra" not in sql

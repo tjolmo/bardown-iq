@@ -39,8 +39,12 @@ No single book spans every era (Caesars 2019-24, ESPN BET 2022-25, Draft Kings i
 from 2025-26), so the per-game consensus is the **median vig-free home win
 probability across all valid 2-way pre-game books** (live feeds excluded, overround
 screen above). For 2024-25 and later that is simply the one book ESPN carries.
-`consensus_home_ml` / `consensus_away_ml` are the medians of the valid books' prices
-and `n_books` / `books` show what went into it.
+`consensus_home_ml` / `consensus_away_ml` are the per-side medians of the valid books'
+prices taken on the *decimal* odds scale and converted back to American (a plain
+median of American odds is meaningless across the +/-100 discontinuity: -105 and +105
+"average" to 0). `open_home_ml` / `open_away_ml` / `open_home_prob_novig` are the same
+consensus over the books whose `open` snapshot is a valid 2-way pair (2023-24 onward),
+and `n_books` / `books` show what went into the closing consensus.
 
 CLI
 ---
@@ -155,6 +159,27 @@ def implied_prob(american: float | None) -> float | None:
     if american is None:
         return None
     return 100.0 / (american + 100.0) if american > 0 else -american / (-american + 100.0)
+
+
+def american_to_decimal(american: float | None) -> float | None:
+    """Valid American price (|x| >= 100) -> decimal odds (> 1); anything else -> None."""
+    if american is None or abs(american) < 100:
+        return None
+    return 1.0 + (american / 100.0 if american > 0 else 100.0 / -american)
+
+
+def decimal_to_american(decimal: float | None) -> float | None:
+    """Decimal odds (> 1) -> American; always |result| >= 100 (2.0 -> +100)."""
+    if decimal is None or decimal <= 1.0:
+        return None
+    return (decimal - 1.0) * 100.0 if decimal >= 2.0 else -100.0 / (decimal - 1.0)
+
+
+def median_price(prices: Iterable[float | None]) -> float | None:
+    """Median of American prices computed on the decimal scale, returned as American.
+    Invalid prices (None, |x| < 100) are ignored."""
+    decimals = [d for d in (american_to_decimal(p) for p in prices) if d is not None]
+    return decimal_to_american(statistics.median(decimals)) if decimals else None
 
 
 def devig(home_ml: float | None, away_ml: float | None) -> tuple[float | None, float | None, float | None]:
@@ -284,18 +309,22 @@ def consensus(book_rows: list[dict]) -> dict:
     pregame = [r for r in book_rows if not r["is_live"]]
     totals_from = good or pregame
     home_prob = _median(r["home_prob"] for r in good)
+    # books whose open snapshot is itself a valid 2-way pair (open_home_prob is set only then)
+    opened = [r for r in pregame if r.get("open_home_prob") is not None]
     return {
         "n_books_total": len(pregame),
         "n_books": len(good),
         "books": "|".join(sorted(r["provider"] for r in good)),
-        "consensus_home_ml": _median(r["home_ml"] for r in good),
-        "consensus_away_ml": _median(r["away_ml"] for r in good),
+        "consensus_home_ml": median_price(r["home_ml"] for r in good),
+        "consensus_away_ml": median_price(r["away_ml"] for r in good),
         "home_prob_novig": home_prob,
         "away_prob_novig": None if home_prob is None else 1 - home_prob,
         "overround": _median(r["overround"] for r in good),
         "total_line": _median(r["total"] for r in totals_from),
-        "open_home_prob_novig": _median(r["open_home_prob"] for r in good),
-        "open_total_line": _median(r["open_total"] for r in totals_from),
+        "open_home_prob_novig": _median(r["open_home_prob"] for r in opened),
+        "open_home_ml": median_price(r.get("open_home_ml") for r in opened),
+        "open_away_ml": median_price(r.get("open_away_ml") for r in opened),
+        "open_total_line": _median(r.get("open_total") for r in totals_from),
     }
 
 
@@ -478,7 +507,7 @@ GAME_COLUMNS = [
     "away_espn_abbr", "home_score", "away_score",
     "n_books", "n_books_total", "books", "consensus_home_ml", "consensus_away_ml",
     "home_prob_novig", "away_prob_novig", "overround", "total_line",
-    "open_home_prob_novig", "open_total_line",
+    "open_home_prob_novig", "open_home_ml", "open_away_ml", "open_total_line",
 ]
 BOOK_COLUMNS = [
     "date", "season", "espn_event_id", "nhl_game_id", "home_team", "away_team",

@@ -10,7 +10,7 @@ def _frame(rows) -> pd.DataFrame:
 def _is_home(col):
     return case((col == "HOME", 1.0), else_=0.0).label("is_home")
 
-async def load_skater_logs(db: AsyncSession, player_ids: list[int] | None = None) -> pd.DataFrame:
+async def load_skater_logs(db: AsyncSession, player_ids: list[int] | None = None, seasons: list[int] | None = None) -> pd.DataFrame:
     stmt = (
         select(
             SkaterGameLog.game_id, SkaterGameLog.player_id, SkaterGameLog.season, SkaterGameLog.game_date,
@@ -24,7 +24,15 @@ async def load_skater_logs(db: AsyncSession, player_ids: list[int] | None = None
     )
     if player_ids is not None:
         stmt = stmt.where(SkaterGameLog.player_id.in_(player_ids))
+    if seasons is not None:
+        stmt = stmt.where(SkaterGameLog.season.in_(seasons))
     return _frame((await db.execute(stmt)).mappings().all())
+
+async def load_current_rosters(db: AsyncSession) -> pd.DataFrame:
+    stmt = select(Player.id.label("player_id"), Player.current_team_tri_code.label("team"), Player.position).where(
+        Player.current_team_tri_code.is_not(None))
+    df = _frame((await db.execute(stmt)).mappings().all())
+    return df if not df.empty else pd.DataFrame(columns=["player_id", "team", "position"])
 
 async def load_goalie_logs(db: AsyncSession, player_ids: list[int] | None = None) -> pd.DataFrame:
     stmt = select(

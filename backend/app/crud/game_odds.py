@@ -6,7 +6,8 @@ import datetime
 
 GAME_ODDS_COLUMNS = [
     "game_id", "date", "home_team_tri_code", "away_team_tri_code", "home_moneyline", "away_moneyline",
-    "home_prob_novig", "open_home_prob_novig", "total_line", "n_books", "books", "espn_event_id",
+    "home_prob_novig", "open_home_prob_novig", "open_home_moneyline", "open_away_moneyline",
+    "total_line", "open_total_line", "n_books", "books", "espn_event_id",
 ]
 
 def game_odds_upsert_stmt(batch: list[dict]):

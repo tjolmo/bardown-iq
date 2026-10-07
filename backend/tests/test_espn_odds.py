@@ -1,5 +1,6 @@
 import json
 import os
+import statistics
 import sys
 from pathlib import Path
 
@@ -147,11 +148,65 @@ def test_consensus_excludes_live_odds():
     assert c["home_prob_novig"] == pytest.approx(odds.devig(155, -185)[0])
     assert c["total_line"] == 5.5                       # not the live 4.5
     assert c["open_home_prob_novig"] == pytest.approx(odds.devig(145, -170)[0])
+    assert (c["open_home_ml"], c["open_away_ml"]) == (pytest.approx(145), pytest.approx(-170))
+
+
+def _book(provider, home_ml, away_ml, open_home=None, open_away=None, live=False):
+    hp, ap, ov = odds.devig(home_ml, away_ml)
+    valid = odds.is_valid_two_way(home_ml, away_ml)
+    return {"provider": provider, "is_live": live, "valid_2way": valid, "home_ml": home_ml, "away_ml": away_ml,
+            "overround": ov, "home_prob": hp if valid else None, "away_prob": ap if valid else None,
+            "total": 6.5, "open_home_ml": open_home, "open_away_ml": open_away,
+            "open_home_prob": odds.devig(open_home, open_away)[0] if odds.is_valid_two_way(open_home, open_away) else None,
+            "open_total": None}
+
+
+def test_decimal_american_round_trip():
+    for price in (-300, -150, -110, -100, 100, 105, 150, 320):
+        assert odds.decimal_to_american(odds.american_to_decimal(price)) == pytest.approx(price if price != -100 else 100)
+    assert odds.american_to_decimal(-2.5) is None and odds.american_to_decimal(0) is None
+
+
+def _novig_from_prices(home_ml, away_ml):
+    return odds.devig(home_ml, away_ml)[0]
+
+
+def test_consensus_mixed_sign_books_regression():
+    # pick'em game: books split across the +/-100 boundary. A plain median of American
+    # odds gives (-105 + 105) / 2 = 0 and (-110 + 105) / 2 = -2.5 -- the corrupt values.
+    rows = [_book("A", -105, -115), _book("B", 105, -125), _book("C", -110, -110), _book("D", 102, -122)]
+    c = odds.consensus(rows)
+    assert c["n_books"] == 4
+    for price in (c["consensus_home_ml"], c["consensus_away_ml"]):
+        assert abs(price) >= 100
+    assert abs(_novig_from_prices(c["consensus_home_ml"], c["consensus_away_ml"]) - c["home_prob_novig"]) < 0.02
+    # home decimals 1.909, 1.952, 2.02, 2.05 -> median (1.952 + 2.02) / 2 = 1.986 -> -101.4 (not ~0)
+    assert c["consensus_home_ml"] == pytest.approx(-101.40, abs=0.01)
+
+
+def test_consensus_two_books_straddling_even():
+    c = odds.consensus([_book("A", -105, -115), _book("B", 105, -125)])
+    assert c["consensus_home_ml"] == pytest.approx(100.12, abs=0.01)  # decimal mean of 1.952 and 2.05 = 2.001
+    assert abs(_novig_from_prices(c["consensus_home_ml"], c["consensus_away_ml"]) - c["home_prob_novig"]) < 0.02
+
+
+def test_consensus_opening_prices():
+    rows = [_book("A", -150, 130, open_home=-105, open_away=-115),
+            _book("B", -145, 125, open_home=105, open_away=-125),
+            _book("C", -140, 120),                                    # no open snapshot
+            _book("D", -150, 130, open_home=145, open_away=145),      # junk open pair -> ignored
+            _book("Live", -400, 300, open_home=-300, open_away=250, live=True)]
+    c = odds.consensus(rows)
+    assert c["open_home_ml"] == pytest.approx(100.12, abs=0.01)
+    assert abs(c["open_away_ml"]) >= 100
+    assert c["open_home_prob_novig"] == pytest.approx(statistics.median([odds.devig(-105, -115)[0], odds.devig(105, -125)[0]]))
+    assert abs(_novig_from_prices(c["open_home_ml"], c["open_away_ml"]) - c["open_home_prob_novig"]) < 0.02
 
 
 def test_consensus_with_no_odds():
     c = odds.consensus([])
     assert c["n_books"] == 0 and c["home_prob_novig"] is None and c["total_line"] is None
+    assert c["open_home_ml"] is None and c["open_away_ml"] is None
 
 
 # --- NHL id matching ---------------------------------------------------------

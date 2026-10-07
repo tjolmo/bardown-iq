@@ -99,6 +99,8 @@ def team_history_features(team_games: pd.DataFrame) -> pd.DataFrame:
         feats[f"team_xg5_pct_{window}"] = pct(f("xgf5"), f("xga5"))
         feats[f"team_cf5_pct_{window}"] = pct(f("cf5"), f("ca5"))
     feats["team_rest_days"] = _rest_days(tg, "team")
+    # second night of a back-to-back; a step the linear model can't get from rest days alone
+    feats["team_back_to_back"] = (feats["team_rest_days"] <= 1).astype(float)
     feats["game_id"] = tg["game_id"].values
     feats["team"] = tg["team"].values
     return feats
@@ -183,26 +185,96 @@ def starter_features(team_games: pd.DataFrame, goalies: pd.DataFrame) -> pd.Data
                            allow_exact_matches=False)
     return looked[["game_id", "team", "gsax60"]].rename(columns={"gsax60": "starter_gsax60"})
 
+# ---------- roster ratings ----------
+# Team averages only learn about a new player after he has played for the team; a roster rating sums each
+# expected skater's own career-based rating, so trades, injuries and offseason moves count from day one.
+
+ROSTER_PRIOR_HOURS = 8.0      # shrink a skater's per-60 rates toward his position's league rate (~30 games)
+ROSTER_EWM_HALFLIFE = 10      # games, for expected ice time and on-ice xG share
+LINEUP_SIZE = 18              # dressed skaters
+
+def skater_ratings(skaters: pd.DataFrame) -> pd.DataFrame:
+    """Each skater's rating *after* each game he played (cumulative, so it follows him across teams).
+    Looked up strictly before a game date, it's his pre-game rating. Expected per-game contributions are
+    shrunk per-60 rates x expected ice time."""
+    df = skaters.assign(date=_date(skaters["game_date"]), is_defense=(skaters["position"] == "D").astype(float))
+    df = df.sort_values(["player_id", "date", "game_id"]).reset_index(drop=True)
+    by = df.groupby("player_id", sort=False)
+    hours = by["toi"].cumsum() / 3600
+    out = pd.DataFrame({"player_id": df["player_id"], "date": df["date"]})
+    # the league rate each position shrinks toward, as of each date (never using later games)
+    daily = df.groupby(["is_defense", "date"])[["game_score", "points", "toi"]].sum().groupby(level=0).cumsum()
+    league = df[["is_defense", "date"]].merge(daily.reset_index(), on=["is_defense", "date"], how="left")
+    for stat in ("game_score", "points"):
+        league_rate = (league[stat] / (league["toi"] / 3600)).to_numpy()
+        out[f"{stat}_per60"] = (by[stat].cumsum() + ROSTER_PRIOR_HOURS * league_rate) / (hours + ROSTER_PRIOR_HOURS)
+    out["exp_toi"] = by["toi"].transform(lambda s: s.ewm(halflife=ROSTER_EWM_HALFLIFE).mean()) / 3600
+    out["on_ice_xg_pct"] = by["on_ice_x_goals_percentage"].transform(lambda s: s.ewm(halflife=ROSTER_EWM_HALFLIFE).mean())
+    out["exp_game_score"] = out["game_score_per60"] * out["exp_toi"]
+    out["exp_points"] = out["points_per60"] * out["exp_toi"]
+    return out.drop_duplicates(["player_id", "date"], keep="last").sort_values("date")
+
+def expected_lineups(skaters: pd.DataFrame, team_games: pd.DataFrame) -> pd.DataFrame:
+    """The skaters expected to dress for each (game_id, team) in `team_games`: whoever played the team's previous
+    game that season. A team's first game of a season uses that game's actual lineup (the opening-night roster
+    is known beforehand); upcoming games with no previous game this season need the current roster instead."""
+    played = skaters[["game_id", "team", "player_id"]]
+    tg = team_games[["game_id", "team", "season", "date"]].sort_values(["team", "date", "game_id"])
+    has_lineup = tg["game_id"].isin(played["game_id"])
+    prev = tg.assign(src=tg["game_id"].where(has_lineup)).groupby(["team", "season"])["src"].transform(
+        lambda s: s.shift(1).ffill())
+    tg = tg.assign(src=prev.fillna(tg["game_id"].where(has_lineup)))
+    lineups = tg.dropna(subset=["src"]).astype({"src": "int64"}).merge(
+        played.rename(columns={"game_id": "src"}), on=["src", "team"])
+    return lineups[["game_id", "team", "date", "player_id"]]
+
+def roster_ratings(lineups: pd.DataFrame, ratings: pd.DataFrame) -> pd.DataFrame:
+    """Sums each expected lineup's pre-game skater ratings into team roster ratings, keyed by (game_id, team)."""
+    looked = pd.merge_asof(lineups.sort_values("date"), ratings, on="date", by="player_id", allow_exact_matches=False)
+    # keep the 18 skaters with the most expected ice time (a previous game can list extra call-ups)
+    looked = looked.sort_values("exp_toi", ascending=False).groupby(["game_id", "team"]).head(LINEUP_SIZE)
+    weighted = looked.assign(w_xg=looked["on_ice_xg_pct"] * looked["exp_toi"])
+    agg = weighted.groupby(["game_id", "team"]).agg(
+        roster_game_score=("exp_game_score", "sum"), roster_points=("exp_points", "sum"),
+        _w_xg=("w_xg", "sum"), _toi=("exp_toi", "sum"), roster_n=("player_id", "count")).reset_index()
+    agg["roster_xg_pct"] = agg["_w_xg"] / agg["_toi"]
+    return agg.drop(columns=["_w_xg", "_toi"])
+
+def latest_skater_ratings(ratings: pd.DataFrame) -> pd.DataFrame:
+    """Each skater's most recent rating (saved with the team model so live predictions don't reload careers)."""
+    return ratings.sort_values("date").drop_duplicates("player_id", keep="last").reset_index(drop=True)
+
+def roster_lineups(rosters: pd.DataFrame, games: pd.DataFrame, ratings: pd.DataFrame) -> pd.DataFrame:
+    """Expected lineups from current rosters (player_id, team, position) for `games` (game_id, team, date): the
+    skaters with the most expected ice time, 12 forwards and 6 defensemen. Used before a team's first game."""
+    r = rosters[rosters["position"] != "G"].merge(ratings[["player_id", "exp_toi"]], on="player_id", how="left")
+    r["is_defense"] = r["position"] == "D"
+    r = r.sort_values("exp_toi", ascending=False)
+    top = pd.concat([r[~r["is_defense"]].groupby("team").head(12), r[r["is_defense"]].groupby("team").head(6)])
+    return games[["game_id", "team", "date"]].merge(top[["team", "player_id"]], on="team")
+
 # ---------- team model frame ----------
 
 TEAM_MODEL_SIDE_FEATURES = ["team_xg_pct_ewm", "team_xg_pct_season", "team_g_pct_ewm", "team_gsax_ewm",
-                            "team_xg5_pct_ewm", "team_xg5_pct_season", "team_games_season", "team_rest_days"]
+                            "team_xg5_pct_ewm", "team_xg5_pct_season", "team_games_season", "team_rest_days",
+                            "team_back_to_back"]
 
-def build_team_model_frame(games: pd.DataFrame, team_feats: pd.DataFrame, starters: pd.DataFrame | None = None) -> pd.DataFrame:
+def build_team_model_frame(games: pd.DataFrame, team_feats: pd.DataFrame, side_feats: list[pd.DataFrame] = ()) -> pd.DataFrame:
     """One row per game from the home team's perspective, with home_*, away_* and difference features.
-    `games` needs id, season, date, home/away tri codes, home/away scores (NaN for unplayed games)."""
+    `games` needs id, season, date, home/away tri codes, home/away scores (NaN for unplayed games).
+    `side_feats` are extra per-(game_id, team) frames (starting goalie, roster ratings) joined for both sides."""
     elo = elo_ratings(games)
     df = games.rename(columns={"id": "game_id"}).merge(elo, on="game_id", how="left")
     side = team_feats[["game_id", "team"] + TEAM_MODEL_SIDE_FEATURES]
-    if starters is not None:
-        side = side.merge(starters, on=["game_id", "team"], how="left")
+    for extra in side_feats:
+        side = side.merge(extra, on=["game_id", "team"], how="left")
     for prefix, col in (("home_", "home_team_tri_code"), ("away_", "away_team_tri_code")):
         renamed = side.rename(columns={c: prefix + c.removeprefix("team_") for c in side.columns if c not in ("game_id", "team")})
         df = df.merge(renamed.rename(columns={"team": col}), on=["game_id", col], how="left")
     df["elo_diff"] = df["home_elo"] + 35.0 - df["away_elo"]
     df["elo_prob"] = 1.0 / (1.0 + 10 ** (-df["elo_diff"] / 400.0))
     for stat in ("xg_pct_ewm", "xg_pct_season", "g_pct_ewm", "gsax_ewm", "rest_days", "xg5_pct_ewm", "xg5_pct_season",
-                 "starter_gsax60"):
+                 "starter_gsax60", "roster_game_score", "roster_points", "roster_xg_pct"):
         if f"home_{stat}" in df:
             df[f"diff_{stat}"] = df[f"home_{stat}"] - df[f"away_{stat}"]
     df["home_win"] = np.where(df["home_score"].notna(), (df["home_score"] > df["away_score"]).astype(float), np.nan)
@@ -211,7 +283,8 @@ def build_team_model_frame(games: pd.DataFrame, team_feats: pd.DataFrame, starte
 # logistic regression inputs; on four test seasons this beat an XGBoost model and a blend of the two
 TEAM_FEATURE_COLUMNS = ["elo_diff", "diff_xg_pct_ewm", "diff_xg_pct_season", "diff_g_pct_ewm", "diff_gsax_ewm",
                         "diff_rest_days", "home_rest_days", "away_rest_days", "diff_xg5_pct_season", "diff_xg5_pct_ewm",
-                        "diff_starter_gsax60"]
+                        "diff_starter_gsax60", "diff_roster_game_score", "diff_roster_points", "diff_roster_xg_pct",
+                        "home_back_to_back", "away_back_to_back"]
 
 # ---------- opponent / own-team context shared by player models ----------
 

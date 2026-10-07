@@ -38,8 +38,10 @@ def _fit_all(skaters, goalies, team_stats, games, odds) -> dict:
     metrics["skaters"] = _fit_skaters(skaters, team_feats)
     if not goalies.empty:
         metrics["goalies"] = _fit_goalies(goalies, team_feats)
-    starters = F.starter_features(team_games, goalies) if not goalies.empty else None
-    metrics["teams"] = _fit_teams(games, team_feats, starters, odds)
+    side_feats = [F.starter_features(team_games, goalies)] if not goalies.empty else []
+    ratings = F.skater_ratings(skaters)
+    side_feats.append(F.roster_ratings(F.expected_lineups(skaters, team_games), ratings))
+    metrics["teams"] = _fit_teams(games, team_feats, side_feats, odds, F.latest_skater_ratings(ratings))
     METRICS_PATH.write_text(json.dumps(metrics, indent=1))
     return metrics
 
@@ -129,8 +131,9 @@ def _fit_goalies(goalies: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
 def _team_logistic():
     return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), LogisticRegression(max_iter=1000))
 
-def _fit_teams(games: pd.DataFrame, team_feats: pd.DataFrame, starters, odds: pd.DataFrame) -> dict:
-    df = F.build_team_model_frame(games, team_feats, starters)
+def _fit_teams(games: pd.DataFrame, team_feats: pd.DataFrame, side_feats: list, odds: pd.DataFrame,
+               latest_ratings: pd.DataFrame) -> dict:
+    df = F.build_team_model_frame(games, team_feats, side_feats)
     regular = df["game_id"] // 10000 % 100 == 2
     df = df[regular & df["home_win"].notna() & df["home_games_season"].notna()].copy()
     df["date"] = pd.to_datetime(df["date"].astype(str), format="%Y%m%d")
@@ -157,7 +160,8 @@ def _fit_teams(games: pd.DataFrame, team_feats: pd.DataFrame, starters, odds: pd
     print("  " + "  ".join(f"{k}={v}" for k, v in metrics.items()))
 
     final = _team_logistic().fit(df[cols], df["home_win"])
-    _save({"model": final, "features": cols}, TEAM_BUNDLE)
+    # live roster ratings look players up here instead of reloading every career on each refresh
+    _save({"model": final, "features": cols, "skater_ratings": latest_ratings}, TEAM_BUNDLE)
     return metrics
 
 async def _main():
