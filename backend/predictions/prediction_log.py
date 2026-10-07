@@ -295,6 +295,9 @@ async def log_predictions(db: AsyncSession, game_date: int | None = None, now: d
             await db.rollback()
             summary["game_failures"] = summary.get("game_failures", 0) + 1
             print(f"prediction log: game {game.id} failed: {e!r}")
+    # which injury report the lineups used (None: no report in the last 36 hours, previous-game lineups)
+    report_at = P._context.get("injury_report_at")
+    summary["injury_report_at"] = report_at.isoformat() if report_at is not None else None
     return summary
 
 
@@ -302,16 +305,22 @@ def base_row(run_id, version, now, game) -> dict:
     return {"run_id": run_id, "model_version": version, "logged_at": now, "game_id": game.id, "game_date": game.date}
 
 
-async def _expected_skaters(db: AsyncSession, game) -> set | None:
-    """Skaters expected to dress (the live lineups behind the roster rating), so scratches aren't logged."""
+async def _expected_skaters(db: AsyncSession, game) -> tuple[set | None, set]:
+    """(skaters expected to dress, players the injury report keeps out). The expected skaters are the live lineups
+    behind the roster rating (previous game's, minus players listed out plus their replacements), so scratches and
+    injured players aren't logged."""
     from . import predict as P
     try:
-        lineups = (await P._team_context(db)).get("lineups")
+        ctx = await P._team_context(db)
     except (LookupError, FileNotFoundError):
-        return None
+        return None, set()
+    out = ctx.get("injured_out")
+    # listed out for this game (a listing covers games up to the day before ESPN's estimated return)
+    out = set(out.index[out >= game.date]) if out is not None else set()
+    lineups = ctx.get("lineups")
     if lineups is None:
-        return None
-    return set(lineups.loc[lineups["game_id"] == game.id, "player_id"].astype(int))
+        return None, out
+    return set(lineups.loc[lineups["game_id"] == game.id, "player_id"].astype(int)), out
 
 
 async def _log_game(db: AsyncSession, game, base: dict, game_snaps, prop_snaps, players: bool, summary: dict) -> None:
@@ -332,9 +341,12 @@ async def _log_game(db: AsyncSession, game, base: dict, game_snaps, prop_snaps, 
         by_market = defaultdict(list)
         for r in prop_snaps.get(game.id, []):
             by_market[(r.player_id, r.prop_type)].append(r)
-        dressing = await _expected_skaters(db, game)
+        dressing, listed_out = await _expected_skaters(db, game)
         for pid, team, pos in await _roster(db, [game.home_team_tri_code, game.away_team_tri_code]):
             role = "goalie" if pos == "G" else "skater"
+            if role == "skater" and pid in listed_out:
+                summary["skaters_listed_out"] = summary.get("skaters_listed_out", 0) + 1
+                continue
             if role == "skater" and dressing and pid not in dressing:
                 summary["skaters_not_expected"] = summary.get("skaters_not_expected", 0) + 1
                 continue

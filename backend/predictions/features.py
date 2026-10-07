@@ -452,6 +452,99 @@ def roster_lineups(rosters: pd.DataFrame, games: pd.DataFrame, ratings: pd.DataF
     top = pd.concat([r[~r["is_defense"]].groupby("team").head(12), r[r["is_defense"]].groupby("team").head(6)])
     return games[["game_id", "team", "date"]].merge(top[["team", "player_id"]], on="team")
 
+# ---------- injury report (live only) ----------
+# The previous game's lineup learns of an injury one game late. ESPN's injury report (player_injuries table) is
+# known before the game, so players it lists out are dropped from upcoming games' expected lineups and replaced by
+# the team's best healthy extra skater of the same position group. Day-to-day players are kept (most of them play).
+# Training never sees it: there is no historical report, so training lineups stay the previous game's.
+
+INJURY_OUT_STATUSES = ("out", "ir", "ltir", "suspended")
+INJURY_DEFAULT_DAYS = 7       # how far ahead a listing without a return date applies
+
+def _game_day(ts: pd.Series) -> pd.Series:
+    """North American game day (yyyymmdd) of UTC timestamps: UTC minus 12 hours, as predict._today."""
+    ts = pd.to_datetime(ts, utc=True) - pd.Timedelta(hours=12)
+    return pd.to_numeric(ts.dt.strftime("%Y%m%d"), errors="coerce")
+
+def _yyyymmdd(dates) -> pd.Series:
+    return pd.to_numeric(pd.to_datetime(pd.Series(dates)).dt.strftime("%Y%m%d"), errors="coerce")
+
+def listed_out(report: pd.DataFrame | None, today: int, last_played: pd.Series | None = None) -> pd.Series:
+    """Players an injury report (player_id, status, report_date, return_date) keeps out of upcoming lineups, as
+    player_id -> the last game day (yyyymmdd) the listing covers: the day before ESPN's estimated return, but at
+    least `today`, or a week ahead without a return date. Only statuses in INJURY_OUT_STATUSES matched to an NHL id,
+    and not seen playing after the entry was last updated (ESPN sometimes leaves a returned player listed;
+    `last_played` maps player_id -> last game_date played)."""
+    if report is None or report.empty:
+        return pd.Series(dtype="int64")
+    r = report[report["status"].isin(INJURY_OUT_STATUSES) & report["player_id"].notna()]
+    r = r.assign(player_id=r["player_id"].astype("int64"))
+    if last_played is not None and not r.empty:
+        played = r["player_id"].map(last_played)
+        # a game on a later game day than the report means he's back (an injury in that night's game is reported
+        # after it, on the same game day, so it still counts)
+        r = r[~(played > _game_day(r["report_date"]))]
+    day = pd.Timestamp(str(today))
+    back = pd.to_datetime(r["return_date"], errors="coerce") - pd.Timedelta(days=1)
+    through = back.fillna(day + pd.Timedelta(days=INJURY_DEFAULT_DAYS)).clip(lower=day)
+    return pd.Series(_yyyymmdd(through).to_numpy(), index=r["player_id"].to_numpy(), dtype="int64").groupby(level=0).max()
+
+def _is_out(rows: pd.DataFrame, out: pd.Series | pd.DataFrame) -> np.ndarray:
+    """Whether each row (game_id, player_id, date) is listed out: inside the player's listing (`listed_out` Series)
+    or, for backtests, one of the (game_id, player_id) pairs of an `out` DataFrame."""
+    if isinstance(out, pd.DataFrame):
+        pairs = pd.MultiIndex.from_frame(out[["game_id", "player_id"]])
+        return pd.MultiIndex.from_frame(rows[["game_id", "player_id"]]).isin(pairs)
+    through = rows["player_id"].map(out).to_numpy(dtype=float)
+    return np.nan_to_num(_yyyymmdd(rows["date"]).to_numpy(dtype=float) <= through, nan=False).astype(bool)
+
+def drop_listed_out(lineups: pd.DataFrame, out: pd.Series | pd.DataFrame, positions: pd.Series,
+                    candidates: pd.DataFrame | None = None, game_ids=None) -> pd.DataFrame:
+    """Expected lineups (game_id, team, date, player_id) without players listed out for that game (`out`, from
+    `listed_out`, or (game_id, player_id) pairs), in `game_ids` only (default all). Each dropped skater is replaced by the candidate of his position
+    group (forward / defence, via `positions`: player_id -> position) with the most expected ice time who isn't out
+    or already in the lineup. `candidates` (team, player_id, position, exp_toi; optionally game_id for per-game
+    pools) are e.g. the current roster; with none, or too few, the lineup stays short."""
+    drop = pd.Series(_is_out(lineups, out), index=lineups.index)
+    if game_ids is not None:
+        drop &= lineups["game_id"].isin(game_ids)
+    if not drop.any():
+        return lineups
+    kept, removed = lineups[~drop], lineups[drop]
+    if candidates is None or candidates.empty:
+        return kept.reset_index(drop=True)
+    is_d = lambda ids: ids.map(positions).eq("D").to_numpy()
+    need = removed.assign(is_d=is_d(removed["player_id"])).groupby(
+        ["game_id", "team", "date", "is_d"]).size().rename("need").reset_index()
+    pool = candidates[candidates["position"] != "G"]
+    pool = pool.assign(is_d=pool["position"].eq("D").to_numpy())
+    keys = (["game_id", "team"] if "game_id" in pool else ["team"]) + ["is_d"]
+    fill = need.merge(pool.drop(columns=["date"], errors="ignore"), on=keys)
+    fill = fill[~_is_out(fill, out)]
+    in_lineup = pd.MultiIndex.from_frame(kept[["game_id", "player_id"]])
+    fill = fill[~pd.MultiIndex.from_frame(fill[["game_id", "player_id"]]).isin(in_lineup)]
+    fill = fill.sort_values("exp_toi", ascending=False, na_position="last").drop_duplicates(["game_id", "player_id"])
+    fill = fill[fill.groupby(["game_id", "team", "is_d"]).cumcount() < fill["need"]]
+    return pd.concat([kept, fill[lineups.columns]], ignore_index=True)
+
+def replace_out_starters(picks: pd.DataFrame, out: pd.Series, team_games: pd.DataFrame, goalies: pd.DataFrame,
+                         rosters: pd.DataFrame, game_ids) -> pd.DataFrame:
+    """Starter picks (starter_picks) for `game_ids` whose goalie is listed out for that game, unless the team
+    confirmed him: the team's rostered healthy goalie with the most starts in `goalies` instead (status "projected")."""
+    rows = picks[["game_id", "team", "player_id"]].merge(team_games[["game_id", "team", "date"]], on=["game_id", "team"],
+                                                         how="left")
+    bad = (picks["game_id"].isin(game_ids) & (picks["status"] != "confirmed")).to_numpy() & _is_out(rows, out)
+    if not bad.any():
+        return picks
+    starts = actual_starters(goalies)["player_id"].value_counts() if not goalies.empty else pd.Series(dtype=float)
+    healthy = rosters[(rosters["position"] == "G") & ~rosters["player_id"].isin(out.index)]
+    healthy = healthy.assign(starts=healthy["player_id"].map(starts).fillna(0)).sort_values("starts", ascending=False)
+    best = healthy.drop_duplicates("team").set_index("team")["player_id"]
+    picks = picks.copy()
+    picks.loc[bad, "player_id"] = picks.loc[bad, "team"].map(best).to_numpy()
+    picks.loc[bad, "status"] = "projected"
+    return picks
+
 # ---------- team model frame ----------
 
 TEAM_MODEL_SIDE_FEATURES = ["team_xg_pct_ewm", "team_xg_pct_season", "team_g_pct_ewm", "team_gsax_ewm",
