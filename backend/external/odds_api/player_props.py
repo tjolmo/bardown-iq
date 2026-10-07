@@ -74,7 +74,9 @@ async def get_player_props(event_id: str) -> list[PlayerPropsResponse]:
         params = {
             "apiKey": os.getenv("ODDS_API_KEY"),
             "regions": "us",
-            # blocked shots and shots on goal added: blocks are the market where the model beat the prices (each market costs credits)
+            # blocked shots and shots on goal added: blocks are the market where the model beat the prices. Each market
+            # returned costs one credit per event (x regions). There is no NHL hits market (not in the docs' market
+            # list, and no US book listed one on /events/{id}/markets in Oct 2026): hits come from ESPN only.
             "markets": "player_points,player_assists,player_goals,player_total_saves,player_blocked_shots,player_shots_on_goal",
             "oddsFormat": "american"
         }

@@ -272,16 +272,17 @@ async def fetch_current_player_props():
                 if unmatched:
                     print(f"Event {event.event_id}: {len(unmatched)} players not matched: {unmatched}")
 
-                if len(props_to_upsert) > 0:
-                    # same prop from several bookmakers: keep consensus line at the best price
-                    await upsert_player_props(db, select_best_props(props_to_upsert))
-                    # and every book's own quote, for line-shopping / consensus backtests later; props are already
-                    # committed, so a failure here only loses the quotes
+                if quotes:
+                    # every book's own quote first: the forward-test log falls back to their consensus when ESPN has
+                    # no line, so they must not depend on the props save below (which once failed on every event)
                     try:
                         await upsert_odds_api_prop_quotes(db, quotes)
                     except Exception as e:
                         await db.rollback()
-                        print(f"Saved props but failed to store quotes for event {event.event_id}: {e}")
+                        print(f"Failed to store quotes for event {event.event_id}: {e}")
+                if len(props_to_upsert) > 0:
+                    # same prop from several bookmakers: keep consensus line at the best price
+                    await upsert_player_props(db, select_best_props(props_to_upsert))
             except Exception as e:
                 # one bad event must not stop props for the remaining games
                 await db.rollback()

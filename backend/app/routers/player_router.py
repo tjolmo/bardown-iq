@@ -1,5 +1,5 @@
 from app.crud.players import get_top_n_goalies
-from app.crud.props import get_player_props_from_db
+from app.crud.props import get_player_prop_board
 from app.schemas.teams import TeamRosteredPlayer
 from app.crud.players import get_top_n_skaters
 import datetime
@@ -252,12 +252,12 @@ async def get_top_players(player_type: str, season: int, n: int, db = Depends(ge
 
 @router.get("/props/{player_id}", status_code=200, response_model=list[PlayerPropOut])
 async def get_player_props(player_id: int, db = Depends(get_db)):
-    """Fetches player props for a player from the database, with the model's chance for each side."""
+    """Fetches player props for a player's latest priced game, with the model's chance for each side: the Odds API's
+    best prices plus ESPN's markets for what the Odds API doesn't carry (hits, and blocks when no book posts them)."""
     try:
-        player_props = await get_player_props_from_db(db, player_id)
-        if not player_props:
-            return player_props
-        out = [PlayerPropOut.model_validate(p, from_attributes=True) for p in player_props]
+        out = await get_player_prop_board(db, player_id)
+        if not out:
+            return out
         try:
             game = await db.get(Games, out[0].game_id)
             player = await get_player_by_id(db, player_id)

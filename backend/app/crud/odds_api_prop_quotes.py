@@ -46,3 +46,13 @@ async def upsert_odds_api_prop_quotes(db: AsyncSession, quotes: list[dict], fetc
 async def get_odds_api_prop_quotes(db: AsyncSession) -> list[dict]:
     result = await db.execute(select(OddsApiPropQuote))
     return [{c.name: getattr(q, c.name) for c in OddsApiPropQuote.__table__.columns} for q in result.scalars().all()]
+
+
+async def get_quotes_for_games(db: AsyncSession, game_ids: list[int], player_id: int | None = None) -> list[OddsApiPropQuote]:
+    """Every stored Odds API quote for these games (optionally one player's), for the prediction log and scorer."""
+    if not game_ids:
+        return []
+    stmt = select(OddsApiPropQuote).where(OddsApiPropQuote.game_id.in_(game_ids))
+    if player_id is not None:
+        stmt = stmt.where(OddsApiPropQuote.player_id == player_id)
+    return list((await db.execute(stmt)).scalars().all())
