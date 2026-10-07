@@ -1,5 +1,47 @@
 # v5: model improvements
 
+Six follow-ups to v4, built on separate branches (v5-starters, v5-injuries, v5-props, v5-dispersion, v5-shares) and merged here.
+
+| Item | Result | Status |
+|---|---|---|
+| 1. True starters from play-by-play | Starters are stored for every game since 2008. The goalie model is better on the starter rows saves props settle on (saves bias +0.53 → +0.19 per game). The win and skater models are unchanged (0.6612). | kept |
+| 2. ESPN injury report | Listed-out players leave upcoming expected lineups, with a same-position replacement. Proxy backtest 0.6612 → 0.6606, within noise; the real test is the forward log. | kept |
+| 3. Live hits pricing | Neither the Odds API nor ESPN (DraftKings since Dec 2025) offers NHL hits. The props endpoint now merges ESPN's markets, so hits show again if a book returns. Also fixed a bug: every Odds API props save had failed since props v2. | no live source |
+| 4. Out-of-sample dispersion | NB alphas are fitted on the validation split nightly and saved in the bundles. Hits 0.131, blocks 0.087, SOG 0.054, saves 0.045 (on true-starter rows). The hits and blocks edges hold. | kept |
+| 5. Props forward-test coverage | ESPN covers ~50–60% of skaters for points and SOG, and none for goals, blocks or hits. The log falls back to the Odds API consensus (`market_source`). | kept, quota-limited |
+| 6. Precomputed deployment shares | `skater_game_shares` table plus a `skater_game_logs.player_id` index. Afternoon log 116 s → 54 s, with identical predictions. | kept |
+
+## Merged run (model-v5)
+
+- **Tests:** 248 passed.
+- **Migrations:**
+  - The chain c3d4e5f6a1b2 → d4e5f6a1b2c3 → e5f6a1b2c3d4 → f6a1b2c3d4e5 → a7b8c9d0e1f2 is linear.
+  - `alembic upgrade head` was run on a schema-only copy of the real DB, which was at c0a51cae31d8. The result matches the scratch DB's new tables exactly.
+  - `nhl_experiments` is stamped at a7b8c9d0e1f2.
+- **Retrain on the merged code:** 29 min wall time.
+  - Skater deviances are unchanged.
+  - Team validation log loss is 0.6621, against 0.6627 for the market on the same games.
+  - The goalie validation deviance rose: saves 1.77 → 2.15, with the baseline rising 2.05 → 2.43. This is not a regression. The rows changed: pulled starters now count as starters, and those games are the hard ones. On identical rows the new model is better (section 1).
+- **Saves alpha changed between branches.** Fitted on true-starter rows, saves alpha is 0.045, against 0.030 when the dispersion branch fit it on most-ice-time rows. The extra spread comes from pulled starters, and books settle saves on them too, so the merged value is the right one. The market comparison in section 4 used the old rows.
+- **Afternoon log dry run** (2026-10-08 slate, 358 skaters, writes rolled back): 50 s. The injury report was applied (85 players listed out).
+- **Review fixes after merging:**
+  - The nightly actual-starters step rechecks games from the last 36 hours. Starters stored while a game was in progress had been skipping the boxscore correction.
+  - The optional `game_starters` and `player_injuries` reads use savepoints, so a failed read can't roll back the prediction log's pending rows.
+  - An injured projected goalie's replacement is ranked by stored actual starts.
+
+## Before merging to the real DB
+
+1. `alembic upgrade head`: nine migrations since c0a51cae31d8, including v4's.
+   - Build `ix_skater_game_logs_player_id` with `CREATE INDEX CONCURRENTLY` first, so the migration skips it and doesn't block writes.
+2. `python -m app.backfill --birth-dates`, carried over from v4.
+3. `python -m app.backfill --actual-starters`, about 75 minutes. Until it runs, training falls back to v4 behaviour.
+4. `python -m predictions.shares refresh --all`, about 1 minute. Until it runs, predictions compute shares the old, slower way, with the same results.
+5. **Odds API quota.** The key has 500 credits a month. The nightly props step costs ~5 credits per game, so the quota lasts about a week in season, and after that the item-5 fallback has no quotes. Upgrade the plan or trim the markets.
+6. **Open items:**
+   - Odds API quotes are only fetched at 03:00 UTC, so closing-line value on that feed is ~0 by construction.
+   - The scorer prices old logs with the current bundle's alphas.
+   - Players coming off the injury report aren't added back to lineups.
+
 ## 1. Historical starters from play-by-play
 
 **Who started every game since 2008 is now stored** (`game_starters`, source `nhl`, status `actual`; 23,249 finished regular-season and playoff games, both teams in every one). Training uses these instead of "the goalie with the most ice time". That stand-in names the reliever whenever a starter is pulled, which happened in 3–4% of team-games.
