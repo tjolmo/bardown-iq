@@ -49,3 +49,7 @@ PROP_DISPERSION = {"hits": 0.12, "blocked_shots": 0.08}
 # validation log likelihood per row by at least DISPERSION_MIN_GAIN nats
 DISPERSION_MAX_ALPHA = 1.0
 DISPERSION_MIN_GAIN = 0.0005
+
+# training uses the actual starter (game_starters, NHL boxscore) for the starter features of played games instead of
+# the schedule projection; see RESULTS_v5 section 1
+TRAIN_ON_ACTUAL_STARTERS = True

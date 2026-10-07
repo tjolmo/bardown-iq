@@ -124,7 +124,9 @@ async def get_current_scores(valid_tri_codes: set[str] | None = None) -> list[Ga
 #            game; no starter or "probable" flag. Gone once the game is final.
 #   play-by-play rosterSpots: the dressed players (both goalies per team), empty until lineups are posted around
 #            puck drop; no starter flag. After puck drop, shot events carry details.goalieInNetId.
-#   boxscore playerByGameStats: only once the game starts; goalies have toi but no starter flag.
+#   boxscore playerByGameStats: only once the game starts; goalies have toi, and finished games (every season back to
+#            2008) carry a `starter` flag, which almost always matches the play-by-play's first shot faced (a starter
+#            pulled early still counts); see parse_actual_starters for the rare disagreements.
 #   right-rail: season series / coaches / scratches (empty pre-game); nothing on goalies.
 # So the NHL API can tell who started only after puck drop; pre-game starters come from ESPN (external/espn/starters.py).
 
@@ -168,7 +170,10 @@ def parse_game_goalies(landing: dict | None, pbp: dict | None = None) -> list[Ga
     return list(goalies.values())
 
 def parse_pbp_starters(pbp: dict | None) -> dict[str, int]:
-    """Team tri code -> the goalie in net for the first shot that team faced. Only known after puck drop."""
+    """Team tri code -> the goalie in net for the first shot that team faced. Only known after puck drop.
+    Shots at an empty net carry no goalieInNetId and are skipped; shootout attempts are ignored (a team that faced no
+    shot in regulation and overtime gets no starter rather than its shootout goalie). Every season back to 2008 has
+    goalieInNetId on shot events, though 2008-09 only lists shots on goal and goals (no missed shots)."""
     if not pbp:
         return {}
     team_by_id = {(pbp.get(side) or {}).get("id"): (pbp.get(side) or {}).get("abbrev") for side in ("homeTeam", "awayTeam")}
@@ -177,6 +182,8 @@ def parse_pbp_starters(pbp: dict | None) -> dict[str, int]:
         d = play.get("details") or {}
         if play.get("typeDescKey") not in SHOT_EVENTS or d.get("goalieInNetId") is None:
             continue
+        if (play.get("periodDescriptor") or {}).get("periodType") == "SO":
+            continue
         shooter = team_by_id.get(d.get("eventOwnerTeamId"))
         defending = [t for t in team_by_id.values() if t and t != shooter]
         if shooter and len(defending) == 1 and defending[0] not in starters:
@@ -184,6 +191,41 @@ def parse_pbp_starters(pbp: dict | None) -> dict[str, int]:
         if len(starters) == 2:
             break
     return starters
+
+def _boxscore_goalies(box: dict | None) -> dict[str, list[dict]]:
+    stats = (box or {}).get("playerByGameStats") or {}
+    return {((box or {}).get(side) or {}).get("abbrev"): (stats.get(side) or {}).get("goalies") or []
+            for side in ("homeTeam", "awayTeam") if ((box or {}).get(side) or {}).get("abbrev")}
+
+def parse_boxscore_starters(box: dict | None) -> dict[str, int]:
+    """Team tri code -> the goalie the boxscore flags as `starter` (finished games only). A team with no flagged
+    goalie, or more than one, is left out."""
+    starters = {}
+    for team, goalies in _boxscore_goalies(box).items():
+        flagged = [g["playerId"] for g in goalies if g.get("starter") and g.get("playerId")]
+        if len(flagged) == 1:
+            starters[team] = int(flagged[0])
+    return starters
+
+def parse_actual_starters(box: dict | None, pbp: dict | None) -> tuple[dict[str, int], dict[str, str], dict[str, tuple]]:
+    """Who started a played game, per team: the goalie in net for the first shot the team faced (play-by-play), else
+    the boxscore's starter flag. Returns (starters, method per team: "pbp" / "boxscore", disagreements per team as
+    (boxscore, pbp)). On 23,249 games from 2008 they disagreed 5 times (RESULTS_v5): twice the starter left injured
+    before facing a shot (the flagged goalie faced none; the flag is right and the play-by-play names the reliever),
+    three times the flag sat on the reliever of a starter pulled after 10-16 minutes (the play-by-play is right).
+    So the flag wins only when its goalie played but faced no shots."""
+    box_s, pbp_s = parse_boxscore_starters(box), parse_pbp_starters(pbp)
+    shotless = {int(g["playerId"]) for goalies in _boxscore_goalies(box).values() for g in goalies
+                if g.get("playerId") and g.get("shotsAgainst") == 0 and g.get("toi") not in (None, "00:00")}
+    starters, method, disagree = {}, {}, {}
+    for team in dict.fromkeys(list(pbp_s) + list(box_s)):
+        if team in pbp_s and team in box_s and pbp_s[team] != box_s[team]:
+            disagree[team] = (box_s[team], pbp_s[team])
+        if team in pbp_s and not (team in disagree and box_s[team] in shotless):
+            starters[team], method[team] = pbp_s[team], "pbp"
+        else:
+            starters[team], method[team] = box_s[team], "boxscore"
+    return starters, method, disagree
 
 async def fetch_gamecenter(game_id: int, endpoint: str) -> dict | None:
     try:
@@ -198,3 +240,10 @@ async def fetch_game_goalies(game_id: int) -> tuple[list[GameGoalie], dict[str, 
     """(rostered goalies, starters known from the play-by-play once the game has started) for one game."""
     landing, pbp = await asyncio.gather(fetch_gamecenter(game_id, "landing"), fetch_gamecenter(game_id, "play-by-play"))
     return parse_game_goalies(landing, pbp), parse_pbp_starters(pbp)
+
+async def fetch_actual_starters(game_id: int) -> tuple[dict[str, int], dict[str, str], dict[str, tuple]] | None:
+    """parse_actual_starters for a played game, or None when neither the boxscore nor the play-by-play could be fetched."""
+    box, pbp = await asyncio.gather(fetch_gamecenter(game_id, "boxscore"), fetch_gamecenter(game_id, "play-by-play"))
+    if box is None and pbp is None:
+        return None
+    return parse_actual_starters(box, pbp)

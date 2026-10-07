@@ -139,5 +139,5 @@ class StarterPick(BaseModel):
     game_id: int
     team: str
     player_id: int
-    status: str                    # "confirmed" | "probable" | "projected"
-    source: str                    # e.g. "espn", "nhl_pbp"
+    status: str                    # "actual" | "confirmed" | "probable" | "projected"
+    source: str                    # "espn" (pre-game picks) or "nhl" (actual starters)

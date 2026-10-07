@@ -18,9 +18,9 @@ from .dispersion import fit_alpha
 from .config import (
     SKATER_BUNDLE, GOALIE_BUNDLE, TEAM_BUNDLE, METRICS_PATH, SKATER_TARGETS, GOALIE_TARGETS, GOALIE_TREND_TARGETS,
     SKATER_EXTRA_STATS, SKATER_TREND_TARGETS,
-    VALIDATION_FRACTION, POISSON_PARAMS, GOALIE_POISSON_PARAMS,
+    VALIDATION_FRACTION, POISSON_PARAMS, GOALIE_POISSON_PARAMS, TRAIN_ON_ACTUAL_STARTERS,
 )
-from .data import load_skater_logs, load_goalie_logs, load_team_stats, load_games, load_game_odds
+from .data import load_skater_logs, load_goalie_logs, load_team_stats, load_games, load_game_odds, load_known_starters
 
 async def train_all_models(db: AsyncSession) -> dict:
     skaters = await load_skater_logs(db)
@@ -28,25 +28,27 @@ async def train_all_models(db: AsyncSession) -> dict:
     team_stats = await load_team_stats(db)
     games = await load_games(db)
     odds = await load_game_odds(db)
+    known = await load_known_starters(db)
     if skaters.empty or games.empty or team_stats.empty:
         print("No training data found. Make sure game logs, team stats and games are populated.")
         return {}
     # CPU-bound fitting runs in a worker thread so the event loop (API + scheduler) stays responsive
-    return await asyncio.to_thread(_fit_all, skaters, goalies, team_stats, games, odds)
+    return await asyncio.to_thread(_fit_all, skaters, goalies, team_stats, games, odds, known)
 
-def _fit_all(skaters, goalies, team_stats, games, odds) -> dict:
+def _fit_all(skaters, goalies, team_stats, games, odds, known: pd.DataFrame | None = None) -> dict:
     team_games = F.build_team_games(team_stats)
     team_feats = F.team_history_features(team_games)
-    # actual starters for played games: live games use the confirmed/probable starter (game_starters), which is
-    # what the actual starter approximates (the projection is only the fallback when none is announced)
-    # projected starters, as in the experiments: "actual" (most ice time) labels the backup as starter when the
-    # starter is pulled early, tying a worse goalie to games already going badly (a leak); live uses announced starters
-    starters = F.starter_features(team_games, goalies) if not goalies.empty else None
+    # starters for played games: the projection, learned from who actually started each team's past games (stored
+    # actual starters from the NHL boxscore, back to 2008), or with TRAIN_ON_ACTUAL_STARTERS the actual starter
+    # itself, which is what live games' confirmed/probable starters (game_starters) approximate. Never the goalie
+    # with the most ice time: when a starter is pulled early that is the backup, tied to a game already going badly.
+    starters = (F.starter_features(team_games, goalies, known, prefer_actual=TRAIN_ON_ACTUAL_STARTERS)
+                if not goalies.empty else None)
     player_ctx = F.add_player_context(team_feats, F.implied_team_goals(games, odds), starters)
     metrics = {"trained_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     metrics["skaters"] = _fit_skaters(skaters, player_ctx)
     if not goalies.empty:
-        metrics["goalies"] = _fit_goalies(goalies, player_ctx)
+        metrics["goalies"] = _fit_goalies(goalies, player_ctx, known)
     side_feats = [starters] if starters is not None else []
     ratings = F.skater_ratings(skaters)
     side_feats.append(F.roster_ratings(F.expected_lineups(skaters, team_games), ratings))
@@ -168,11 +170,11 @@ def _fit_skaters(skaters: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
 
 # ---------- goalies ----------
 
-def _fit_goalies(goalies: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
+def _fit_goalies(goalies: pd.DataFrame, team_feats: pd.DataFrame, known: pd.DataFrame | None = None) -> dict:
     df = F.goalie_features(goalies, team_feats)
-    # predictions are for the goalie who starts, so learn from the goalie who played most of each game
-    starter = df["toi"] == df.groupby(["game_id", "team"])["toi"].transform("max")
-    df = df[starter & (df["games_career"] >= 1)].copy()
+    # predictions are for the goalie who starts (and saves props settle on him, pulled or not), so learn from the
+    # actual starter's full game: a starter pulled early counts, his reliever doesn't
+    df = df[F.starter_rows(df, known) & (df["games_career"] >= 1)].copy()
     for target in GOALIE_TREND_TARGETS:
         df[f"trend_{target}"] = F.league_trend(df, target)
 

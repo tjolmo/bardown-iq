@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import features as F
 from .config import PROP_DISPERSION, SKATER_BUNDLE, GOALIE_BUNDLE, TEAM_BUNDLE, SKATER_TARGETS, GOALIE_TARGETS, GOALIE_TREND_TARGETS
 from .data import (load_skater_logs, load_goalie_logs, load_team_stats, load_games, load_current_rosters, load_game_odds,
-                   load_game_mates)
+                   load_game_mates, load_known_starters)
 
 _bundles: dict = {}
 
@@ -87,8 +87,9 @@ def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.Da
     upcoming = set(placeholders.loc[placeholders["home_score"].isna() & (placeholders["date"] >= _today()), "id"])
     season = int(games["season"].max())
     out = _injured_out(injuries, skaters, goalies[goalies["season"] == season] if not goalies.empty else goalies)
-    # starters: confirmed/probable (game_starters table) for upcoming games, else the projection; actual starters
-    # for played games, as in training. A projected starter listed out gives way to the team's healthy goalie.
+    # starters: confirmed/probable (game_starters table) for upcoming games, else the projection (learned from
+    # stored actual starters); actual starters for played and in-progress games. A projected starter listed out
+    # gives way to the team's healthy goalie.
     picks = F.starter_picks(team_games, goalies, known_starters, prefer_actual=True) if not goalies.empty else None
     if picks is not None and not out.empty:
         recent = goalies[goalies["season"] >= season - 1]
@@ -129,16 +130,6 @@ def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.Da
             "starter_picks": picks, "injured_out": out,
             "injury_report_at": injuries["fetched_at"].max() if injuries is not None and not injuries.empty else None}
 
-async def _load_known_starters(db: AsyncSession) -> pd.DataFrame | None:
-    """Confirmed / probable starters from game_starters (None if the table is missing or unreadable)."""
-    from app.crud.game_starters import load_game_starters
-    try:
-        return await load_game_starters(db)
-    except Exception as e:
-        await db.rollback()
-        print(f"Could not load game_starters, using projected starters: {e!r}")
-        return None
-
 async def _load_injuries(db: AsyncSession) -> pd.DataFrame | None:
     """The latest injury report fetched in the last 36 hours (None if there is none, or the table is unreadable)."""
     from app.crud.player_injuries import load_injury_report
@@ -165,7 +156,7 @@ async def _team_context(db: AsyncSession) -> dict:
         rosters = await load_current_rosters(db)
         odds = await load_game_odds(db)
         # the Elo loop, starter guesses and groupbys take a moment, so keep them off the event loop
-        known_starters = await _load_known_starters(db)
+        known_starters = await load_known_starters(db)
         injuries = await _load_injuries(db)
         built = await asyncio.to_thread(_build_context, team_stats, games, goalies, skaters, rosters, odds, team_mtime,
                                         known_starters=known_starters, injuries=injuries)
