@@ -99,13 +99,13 @@ def match_goalie(pick: dict, goalies: list[GameGoalie]) -> GameGoalie | None:
 def resolve_starters(game_id: int, home: str, away: str, picks: list[dict], goalies: list[GameGoalie],
                      pbp_starters: dict[str, int]) -> tuple[list[StarterPick], list[str]]:
     """Starters for one game, best source first: the goalie actually in net once the game has started (NHL
-    play-by-play), else ESPN's confirmed / expected goalie matched to an NHL id. An ESPN goalie who is not among
+    play-by-play; stored as the actual starter beside any earlier ESPN pick), else ESPN's confirmed / expected goalie matched to an NHL id. An ESPN goalie who is not among
     the dressed goalies (once lineups are posted) is dropped. Returns (picks, problems)."""
     out, problems = [], []
     by_team = {p["team"]: p for p in picks if p["home"] == home and p["away"] == away}
     for team in (home, away):
         if team in pbp_starters:
-            out.append(StarterPick(game_id=game_id, team=team, player_id=pbp_starters[team], status="confirmed", source="nhl_pbp"))
+            out.append(StarterPick(game_id=game_id, team=team, player_id=pbp_starters[team], status="actual", source="nhl"))
             continue
         pick = by_team.get(team)
         if pick is None:

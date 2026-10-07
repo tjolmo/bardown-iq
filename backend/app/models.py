@@ -426,13 +426,15 @@ class PredictionScore(Base):
     bet_profit: Mapped[float | None] = mapped_column(nullable=True)  # 1-unit flat stake at the logged price
 
 class GameStarter(Base):
-    """Each team's starting goalie for a game: "confirmed" (announced, or seen in net once the game started),
-    "probable" (ESPN's expected starter) or "projected". One row per (game, team); the latest fetch wins.
+    """Each team's starting goalie for a game, one row per (game, team, source) so the pre-game pick and the
+    actual starter are both kept: source "espn" rows are "confirmed" (announced) or "probable" (ESPN's expected
+    starter) and the latest fetch wins; source "nhl" rows are "actual" (who started: the goalie in net for the first
+    shot the team faced, from the NHL play-by-play, with the boxscore's starter flag as fallback), back to 2008.
     No FK on player_id: a same-day call-up may not be in players yet."""
     __tablename__ = "game_starters"
     game_id: Mapped[int] = mapped_column(primary_key=True)
     team: Mapped[str] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(primary_key=True)
     player_id: Mapped[int] = mapped_column(nullable=False)
     status: Mapped[str] = mapped_column(nullable=False)
-    source: Mapped[str] = mapped_column(nullable=False)
     fetched_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)

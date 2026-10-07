@@ -84,3 +84,14 @@ async def load_game_odds(db: AsyncSession) -> pd.DataFrame:
     stmt = select(GameOdds.game_id, GameOdds.home_prob_novig, GameOdds.total_line)
     df = _frame((await db.execute(stmt)).mappings().all())
     return df if not df.empty else pd.DataFrame(columns=["game_id", "home_prob_novig", "total_line"])
+
+async def load_known_starters(db: AsyncSession) -> pd.DataFrame | None:
+    """Stored starters (game_starters: ESPN pre-game picks and actual starters), or None if the table is missing or
+    unreadable (features then fall back to the projection and the goalie with the most ice time)."""
+    from app.crud.game_starters import load_game_starters
+    try:
+        return await load_game_starters(db)
+    except Exception as e:
+        await db.rollback()
+        print(f"Could not load game_starters, using projected starters: {e!r}")
+        return None

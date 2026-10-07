@@ -398,9 +398,47 @@ async def fetch_confirmed_starters(days: int = 1, game_day: datetime.date | None
         # rebuild the cached prediction context on next use so it picks up the new starters
         from predictions import predict
         predict._context["built_at"] = 0.0
-    counts = {status: sum(s.status == status for s in starters) for status in ("confirmed", "probable")}
+    counts = {status: sum(s.status == status for s in starters) for status in ("actual", "confirmed", "probable")}
     print(f"Starters: {written} team-games stored for {len(games)} games ({counts}); missing {len(problems)}: {problems[:10]}")
     return written
+
+async def record_actual_starters(game_ids: list[int], concurrency: int = 4) -> dict:
+    """Who actually started each of `game_ids` (finished games): the goalie in net for the first shot each team faced
+    (NHL play-by-play), else the boxscore's starter flag (see parse_actual_starters), stored in game_starters as source "nhl" / status "actual" (training
+    uses these instead of the goalie with the most ice time, which names the reliever when a starter is pulled).
+    Returns counts: games fetched/failed, teams found per method, teams missing and boxscore/pbp disagreements."""
+    from external.nhl.games import fetch_actual_starters
+    from .crud.game_starters import upsert_game_starters, actual_starter_rows
+    results = await gather_bounded([fetch_actual_starters(gid) for gid in game_ids], limit=concurrency)
+    rows, stats = [], {"games": len(game_ids), "failed": [], "boxscore": 0, "pbp": 0, "teams_missing": [], "disagree": []}
+    for gid, res in zip(game_ids, results):
+        if res is None:
+            stats["failed"].append(gid)
+            continue
+        starters, method, disagree = res
+        rows.extend(actual_starter_rows(gid, starters))
+        for m in method.values():
+            stats[m] += 1
+        if len(starters) < 2:
+            stats["teams_missing"].append(gid)
+        stats["disagree"].extend((gid, team, box, pbp) for team, (box, pbp) in disagree.items())
+    async with AsyncSessionLocal() as db:
+        await upsert_game_starters(db, rows)
+    return stats
+
+async def fetch_recent_actual_starters(max_games: int = 400) -> int:
+    """Actual starters for this season's finished games that don't have them yet (normally last night's games;
+    a missed night is caught up on the next run). Returns team-games stored."""
+    from .crud.game_starters import get_games_missing_actual_starters
+    async with AsyncSessionLocal() as db:
+        game_ids = await get_games_missing_actual_starters(db, min_season=get_current_season_start_year(), limit=max_games)
+    if not game_ids:
+        return 0
+    stats = await record_actual_starters(game_ids)
+    stored = stats["boxscore"] + stats["pbp"]
+    print(f"Actual starters: {stored} team-games for {len(game_ids)} games (boxscore flag {stats['boxscore']}); "
+          f"failed {stats['failed'][:10]}, incomplete {stats['teams_missing'][:10]}, boxscore/pbp disagree {stats['disagree'][:10]}")
+    return stored
 
 async def pregame_odds_pipeline():
     """Game lines and player props for today's games. ESPN posts player props only on game day, so the
@@ -438,6 +476,8 @@ async def nightly_pipeline():
     if not logs_ok:
         # models trained on a partial log load would be wrong, so keep yesterday's models this run
         print("Skipping training: player log scrape failed")
+    # who actually started last night's games (training labels the goalie model's rows and the starter features with these)
+    await run_step("actual starters", fetch_recent_actual_starters)
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("player prop odds", fetch_recent_player_prop_odds)
     # after the fetches above captured last night's closing prices and the logs scrape brought the box scores
@@ -458,6 +498,7 @@ async def full_refresh():
     if not logs_ok:
         print("Skipping training: player log scrape failed")
     await run_step("scores", fetch_current_scores)
+    await run_step("actual starters", fetch_recent_actual_starters)
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("props", fetch_current_player_props)
     if logs_ok:

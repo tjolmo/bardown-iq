@@ -215,10 +215,35 @@ def standings_flags(games: pd.DataFrame) -> pd.DataFrame:
 GOALIE_PRIOR_HOURS = 25.0     # shrink a goalie's GSAx rate toward league average with ~25 games of prior
 STARTER_LOOKBACK = 10         # team games used to guess the starter
 
-def actual_starters(goalies: pd.DataFrame) -> pd.DataFrame:
-    """The goalie who played the most in each team-game."""
+# game_starters status of the goalie who actually started (NHL play-by-play first shot faced / boxscore flag, 2008 on)
+ACTUAL_STATUS = "actual"
+
+def most_ice_time(goalies: pd.DataFrame) -> pd.DataFrame:
+    """The goalie who played the most in each team-game. Not the starter when the starter was pulled early: then it
+    names the reliever, tying the backup to games already going badly."""
     s = goalies.loc[goalies["toi"] == goalies.groupby(["game_id", "team"])["toi"].transform("max")]
     return s.drop_duplicates(["game_id", "team"])[["game_id", "team", "player_id"]]
+
+def true_starters(known: pd.DataFrame | None) -> pd.DataFrame:
+    """Stored actual starters (game_starters rows with status "actual") as (game_id, team, player_id)."""
+    if known is None or known.empty or "status" not in known:
+        return pd.DataFrame({"game_id": pd.Series(dtype="int64"), "team": pd.Series(dtype=object),
+                             "player_id": pd.Series(dtype="int64")})
+    k = known[known["status"] == ACTUAL_STATUS].drop_duplicates(["game_id", "team"], keep="last")
+    return k[["game_id", "team", "player_id"]].astype({"game_id": "int64", "player_id": "int64"}).reset_index(drop=True)
+
+def actual_starters(goalies: pd.DataFrame, known: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Who started each played team-game: the stored actual starter where there is one, else the goalie with the
+    most ice time (games without a stored starter; right for ~96% of team-games)."""
+    toi, true = most_ice_time(goalies), true_starters(known)
+    return _override_picks(toi, true) if not true.empty else toi
+
+def starter_rows(goalies: pd.DataFrame, known: pd.DataFrame | None = None) -> pd.Series:
+    """Boolean mask of `goalies` rows that are their team's starter (see actual_starters): a starter pulled in the
+    first period counts, the goalie who relieved him doesn't."""
+    keys = actual_starters(goalies, known).assign(_starter=True)
+    flag = goalies[["game_id", "team", "player_id"]].merge(keys, on=["game_id", "team", "player_id"], how="left")["_starter"]
+    return pd.Series(flag.fillna(False).astype(bool).to_numpy(), index=goalies.index)
 
 def projected_starters(team_games: pd.DataFrame, starters: pd.DataFrame) -> pd.DataFrame:
     """A pre-game guess of each team's starter from the schedule alone: the goalie with the most starts in the
@@ -265,17 +290,17 @@ def _override_picks(base: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
 def starter_picks(team_games: pd.DataFrame, goalies: pd.DataFrame, known: pd.DataFrame | None = None,
                   prefer_actual: bool = False) -> pd.DataFrame:
     """Each team-game's starter as (game_id, team, player_id, status), best information first:
-    the actual starter for games already played (when `prefer_actual`; status "actual"), then a confirmed or
+    the stored actual starter for games already played (when `prefer_actual`; status "actual"), then a confirmed or
     probable starter from `known` (the game_starters table; status as stored), else the schedule projection
-    ("projected"). Training uses actual starters; live games get confirmed/probable starters when announced,
-    which is what an actual starter approximates."""
-    actual = actual_starters(goalies)
-    picks = projected_starters(team_games, actual).assign(status="projected")
+    ("projected"). The projection learns each team's habits from who actually started its past games (stored
+    actual starters, else the goalie with the most ice time). Live games get confirmed/probable starters when
+    announced, which is what an actual starter approximates."""
+    picks = projected_starters(team_games, actual_starters(goalies, known)).assign(status="projected")
     if known is not None and not known.empty:
         k = known[known["status"].isin(KNOWN_STARTER_STATUSES)].drop_duplicates(["game_id", "team"], keep="last")
         picks = _override_picks(picks, k[["game_id", "team", "player_id", "status"]])
     if prefer_actual:
-        picks = _override_picks(picks, actual.assign(status="actual"))
+        picks = _override_picks(picks, true_starters(known).assign(status=ACTUAL_STATUS))
     return picks.reset_index(drop=True)
 
 def starter_features(team_games: pd.DataFrame, goalies: pd.DataFrame, known: pd.DataFrame | None = None,

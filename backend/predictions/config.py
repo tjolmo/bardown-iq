@@ -44,3 +44,7 @@ GOALIE_POISSON_PARAMS = POISSON_PARAMS | {"min_child_weight": 20}
 # negative-binomial dispersion (variance = mu(1 + alpha mu)) for over-dispersed stats when pricing props;
 # measured on out-of-time predictions (hits var/mean 1.15-1.29, blocks ~1.07); everything else stays Poisson
 PROP_DISPERSION = {"hits": 0.12, "blocked_shots": 0.08}
+
+# training uses the actual starter (game_starters, NHL boxscore) for the starter features of played games instead of
+# the schedule projection; see RESULTS_v5 section 1
+TRAIN_ON_ACTUAL_STARTERS = True
