@@ -1,0 +1,616 @@
+{
+ "events": [
+  {
+   "id": "401891815",
+   "date": "2026-10-06T23:00Z",
+   "shortName": "CAR @ MTL",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "MTL"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4697686,
+         "athlete": {
+          "id": "4697686",
+          "fullName": "Jakub Dobes",
+          "displayName": "Jakub Dobes",
+          "shortName": "J. Dobes",
+          "jersey": "75",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "CAR"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4996097,
+         "athlete": {
+          "id": "4996097",
+          "fullName": "Brandon Bussi",
+          "displayName": "Brandon Bussi",
+          "shortName": "B. Bussi",
+          "jersey": "32",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401892449",
+   "date": "2026-10-06T23:00Z",
+   "shortName": "NSH @ TOR",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "TOR"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 3067313,
+         "athlete": {
+          "id": "3067313",
+          "fullName": "Anthony Stolarz",
+          "displayName": "Anthony Stolarz",
+          "shortName": "A. Stolarz",
+          "jersey": "41",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "NSH"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 3042109,
+         "athlete": {
+          "id": "3042109",
+          "fullName": "Juuse Saros",
+          "displayName": "Juuse Saros",
+          "shortName": "J. Saros",
+          "jersey": "74",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401892450",
+   "date": "2026-10-06T23:00Z",
+   "shortName": "OTT @ DET",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "DET"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 2590824,
+         "athlete": {
+          "id": "2590824",
+          "fullName": "John Gibson",
+          "displayName": "John Gibson",
+          "shortName": "J. Gibson",
+          "jersey": "36",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "OTT"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4587815,
+         "athlete": {
+          "id": "4587815",
+          "fullName": "Samuel Ersson",
+          "displayName": "Samuel Ersson",
+          "shortName": "S. Ersson",
+          "jersey": "30",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401892451",
+   "date": "2026-10-06T23:00Z",
+   "shortName": "UTA @ NJ",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "NJ"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 5111,
+         "athlete": {
+          "id": "5111",
+          "fullName": "Jake Allen",
+          "displayName": "Jake Allen",
+          "shortName": "J. Allen",
+          "jersey": "34",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "UTA"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 3942065,
+         "athlete": {
+          "id": "3942065",
+          "fullName": "Karel Vejmelka",
+          "displayName": "Karel Vejmelka",
+          "shortName": "K. Vejmelka",
+          "jersey": "70",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401892453",
+   "date": "2026-10-06T23:00Z",
+   "shortName": "MIN @ BUF",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "BUF"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4736758,
+         "athlete": {
+          "id": "4736758",
+          "fullName": "Colten Ellis",
+          "displayName": "Colten Ellis",
+          "shortName": "C. Ellis",
+          "jersey": "92",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "MIN"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4874737,
+         "athlete": {
+          "id": "4874737",
+          "fullName": "Jesper Wallstedt",
+          "displayName": "Jesper Wallstedt",
+          "shortName": "J. Wallstedt",
+          "jersey": "30",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401892452",
+   "date": "2026-10-06T23:30Z",
+   "shortName": "NYI @ NYR",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "NYR"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 3151297,
+         "athlete": {
+          "id": "3151297",
+          "fullName": "Igor Shesterkin",
+          "displayName": "Igor Shesterkin",
+          "shortName": "I. Shesterkin",
+          "jersey": "31",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "NYI"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 3759,
+         "athlete": {
+          "id": "3759",
+          "fullName": "Semyon Varlamov",
+          "displayName": "Semyon Varlamov",
+          "shortName": "S. Varlamov",
+          "jersey": "40",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401891779",
+   "date": "2026-10-07T00:00Z",
+   "shortName": "STL @ CHI",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "CHI"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4565234,
+         "athlete": {
+          "id": "4565234",
+          "fullName": "Spencer Knight",
+          "displayName": "Spencer Knight",
+          "shortName": "S. Knight",
+          "jersey": "30",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "STL"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4587909,
+         "athlete": {
+          "id": "4587909",
+          "fullName": "Joel Hofer",
+          "displayName": "Joel Hofer",
+          "shortName": "J. Hofer",
+          "jersey": "30",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401892454",
+   "date": "2026-10-07T01:40Z",
+   "shortName": "VGK @ SEA",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "SEA"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 3942073,
+         "athlete": {
+          "id": "3942073",
+          "fullName": "Joey Daccord",
+          "displayName": "Joey Daccord",
+          "shortName": "J. Daccord",
+          "jersey": "35",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "VGK"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4064582,
+         "athlete": {
+          "id": "4064582",
+          "fullName": "Carter Hart",
+          "displayName": "Carter Hart",
+          "shortName": "C. Hart",
+          "jersey": "79",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401891806",
+   "date": "2026-10-07T02:20Z",
+   "shortName": "FLA @ LA",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "LA"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 2610321,
+         "athlete": {
+          "id": "2610321",
+          "fullName": "Darcy Kuemper",
+          "displayName": "Darcy Kuemper",
+          "shortName": "D. Kuemper",
+          "jersey": "35",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "FLA"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 5452,
+         "athlete": {
+          "id": "5452",
+          "fullName": "Jacob Markstrom",
+          "displayName": "Jacob Markstrom",
+          "shortName": "J. Markstrom",
+          "jersey": "25",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

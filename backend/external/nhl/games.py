@@ -1,5 +1,5 @@
 from external.nhl.response_models import GameResponse
-from external.nhl.response_models import GameOdds
+from external.nhl.response_models import GameOdds, GameGoalie
 import asyncio
 import time
 import httpx
@@ -117,3 +117,84 @@ async def get_current_scores(valid_tri_codes: set[str] | None = None) -> list[Ga
             continue
         parsed.append(parsed_game)
     return parsed or None
+
+# ---------- goalies / starters (gamecenter) ----------
+# What the NHL API exposes about starters (probed Oct 2026):
+#   landing  matchup.goalieComparison.{home,away}Team.leaders: every rostered goalie with season stats, before the
+#            game; no starter or "probable" flag. Gone once the game is final.
+#   play-by-play rosterSpots: the dressed players (both goalies per team), empty until lineups are posted around
+#            puck drop; no starter flag. After puck drop, shot events carry details.goalieInNetId.
+#   boxscore playerByGameStats: only once the game starts; goalies have toi but no starter flag.
+#   right-rail: season series / coaches / scratches (empty pre-game); nothing on goalies.
+# So the NHL API can tell who started only after puck drop; pre-game starters come from ESPN (external/espn/starters.py).
+
+
+GAMECENTER_URL = "https://api-web.nhle.com/v1/gamecenter/{game_id}/{endpoint}"
+SHOT_EVENTS = {"shot-on-goal", "missed-shot", "goal"}
+
+def _text(v) -> str | None:
+    return v.get("default") if isinstance(v, dict) else v
+
+def parse_game_goalies(landing: dict | None, pbp: dict | None = None) -> list[GameGoalie]:
+    """Rostered goalies per team from landing's goalie comparison, marked dressed or not once the play-by-play
+    rosterSpots are posted (dressed goalies missing from the comparison, e.g. a same-day call-up, are added)."""
+    src = landing or pbp or {}
+    abbrev = {side: (src.get(side) or {}).get("abbrev") for side in ("homeTeam", "awayTeam")}
+    goalies: dict[int, GameGoalie] = {}
+    comparison = ((landing or {}).get("matchup") or {}).get("goalieComparison") or {}
+    for side in ("homeTeam", "awayTeam"):
+        for g in (comparison.get(side) or {}).get("leaders") or []:
+            if g.get("playerId") is None or not abbrev[side] or g.get("positionCode", "G") != "G":
+                continue
+            goalies[int(g["playerId"])] = GameGoalie(player_id=int(g["playerId"]), team=abbrev[side],
+                                                     first_name=_text(g.get("firstName")), last_name=_text(g.get("lastName")),
+                                                     sweater_number=g.get("sweaterNumber"))
+    if pbp:
+        team_by_id = {(pbp.get(side) or {}).get("id"): (pbp.get(side) or {}).get("abbrev") for side in ("homeTeam", "awayTeam")}
+        spots = pbp.get("rosterSpots") or []
+        posted = {team_by_id.get(s.get("teamId")) for s in spots}
+        dressed = {}
+        for s in spots:
+            team = team_by_id.get(s.get("teamId"))
+            if s.get("positionCode") == "G" and team and s.get("playerId") is not None:
+                dressed[int(s["playerId"])] = GameGoalie(player_id=int(s["playerId"]), team=team,
+                                                         first_name=_text(s.get("firstName")), last_name=_text(s.get("lastName")),
+                                                         sweater_number=s.get("sweaterNumber"), dressed=True)
+        for pid, g in list(goalies.items()):
+            if g.team in posted:
+                goalies[pid] = g.model_copy(update={"dressed": pid in dressed})
+        for pid, g in dressed.items():
+            goalies.setdefault(pid, g)
+    return list(goalies.values())
+
+def parse_pbp_starters(pbp: dict | None) -> dict[str, int]:
+    """Team tri code -> the goalie in net for the first shot that team faced. Only known after puck drop."""
+    if not pbp:
+        return {}
+    team_by_id = {(pbp.get(side) or {}).get("id"): (pbp.get(side) or {}).get("abbrev") for side in ("homeTeam", "awayTeam")}
+    starters: dict[str, int] = {}
+    for play in sorted(pbp.get("plays") or [], key=lambda p: p.get("sortOrder", 0)):
+        d = play.get("details") or {}
+        if play.get("typeDescKey") not in SHOT_EVENTS or d.get("goalieInNetId") is None:
+            continue
+        shooter = team_by_id.get(d.get("eventOwnerTeamId"))
+        defending = [t for t in team_by_id.values() if t and t != shooter]
+        if shooter and len(defending) == 1 and defending[0] not in starters:
+            starters[defending[0]] = int(d["goalieInNetId"])
+        if len(starters) == 2:
+            break
+    return starters
+
+async def fetch_gamecenter(game_id: int, endpoint: str) -> dict | None:
+    try:
+        response = await get_with_retries(GAMECENTER_URL.format(game_id=game_id, endpoint=endpoint))
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"Error fetching {endpoint} for game {game_id}: {e}")
+        return None
+
+async def fetch_game_goalies(game_id: int) -> tuple[list[GameGoalie], dict[str, int]]:
+    """(rostered goalies, starters known from the play-by-play once the game has started) for one game."""
+    landing, pbp = await asyncio.gather(fetch_gamecenter(game_id, "landing"), fetch_gamecenter(game_id, "play-by-play"))
+    return parse_game_goalies(landing, pbp), parse_pbp_starters(pbp)

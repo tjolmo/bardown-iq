@@ -32,6 +32,7 @@ class Player(Base):
     number: Mapped[int] = mapped_column(nullable=True)
     position: Mapped[str] = mapped_column(nullable=True)
     shoots_catches: Mapped[str] = mapped_column(nullable=True)
+    birth_date: Mapped[datetime.date] = mapped_column(nullable=True)
     current_team: Mapped["Team"] = relationship("Team", back_populates="current_players")
     last_updated: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
     game_logs: Mapped[list["SkaterGameLog"]] = relationship("SkaterGameLog", back_populates="player")
@@ -301,3 +302,137 @@ class OddsApiPropQuote(Base):
     last_seen: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     book_last_update: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     event_id: Mapped[str | None] = mapped_column(nullable=True)
+
+# ---------- price path, prediction log and forward scoring (see predictions/prediction_log.py) ----------
+from sqlalchemy import Index, UniqueConstraint  # noqa: E402
+
+class GameOddsSnapshot(Base):
+    """Append-only game price path: one row per game per ESPN fetch, never overwritten.
+
+    Rows are only written before puck drop (captured_at < games.start_time), except one `is_closing` row per game
+    written by the first fetch after the game is final, holding ESPN's price frozen at puck drop (the close)."""
+    __tablename__ = "game_odds_snapshots"
+    __table_args__ = (UniqueConstraint("game_id", "source", "captured_at", name="uq_game_odds_snapshots"),)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    game_id: Mapped[int] = mapped_column(nullable=False, index=True)
+    captured_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(nullable=False)            # "espn" (median consensus across books)
+    is_closing: Mapped[bool] = mapped_column(nullable=False, default=False)
+    home_moneyline: Mapped[float | None] = mapped_column(nullable=True)
+    away_moneyline: Mapped[float | None] = mapped_column(nullable=True)
+    home_prob_novig: Mapped[float | None] = mapped_column(nullable=True)
+    total_line: Mapped[float | None] = mapped_column(nullable=True)
+    over_price: Mapped[float | None] = mapped_column(nullable=True)
+    under_price: Mapped[float | None] = mapped_column(nullable=True)
+    n_books: Mapped[int | None] = mapped_column(nullable=True)
+    books: Mapped[str | None] = mapped_column(nullable=True)
+
+class PlayerPropSnapshot(Base):
+    """Append-only player prop price path (one book, one line per row), same pre-game / closing rules as above."""
+    __tablename__ = "player_prop_snapshots"
+    __table_args__ = (
+        UniqueConstraint("game_id", "player_id", "prop_type", "line", "book", "captured_at", name="uq_player_prop_snapshots"),
+        Index("ix_player_prop_snapshots_game_captured", "game_id", "captured_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    game_id: Mapped[int] = mapped_column(nullable=False)
+    player_id: Mapped[int] = mapped_column(nullable=False, index=True)
+    prop_type: Mapped[str] = mapped_column(nullable=False)
+    line: Mapped[float] = mapped_column(nullable=False)
+    book: Mapped[str] = mapped_column(nullable=False)
+    captured_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_closing: Mapped[bool] = mapped_column(nullable=False, default=False)
+    over_price: Mapped[float | None] = mapped_column(nullable=True)
+    under_price: Mapped[float | None] = mapped_column(nullable=True)
+    sides_inferred: Mapped[bool] = mapped_column(nullable=False, default=False)
+    espn_last_updated: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class PredictionLog(Base):
+    """Frozen pre-game team win probability plus the market price at that moment. Insert-only."""
+    __tablename__ = "prediction_log"
+    __table_args__ = (UniqueConstraint("game_id", "model_version", "run_id", name="uq_prediction_log"),)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(nullable=False, index=True)
+    model_version: Mapped[str] = mapped_column(nullable=False)
+    logged_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    game_id: Mapped[int] = mapped_column(nullable=False, index=True)
+    game_date: Mapped[int] = mapped_column(nullable=False)
+    start_time: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    home_team_tri_code: Mapped[str] = mapped_column(nullable=False)
+    away_team_tri_code: Mapped[str] = mapped_column(nullable=False)
+    home_win_prob: Mapped[float] = mapped_column(nullable=False)
+    market_captured_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    market_home_prob_novig: Mapped[float | None] = mapped_column(nullable=True)
+    market_home_moneyline: Mapped[float | None] = mapped_column(nullable=True)
+    market_away_moneyline: Mapped[float | None] = mapped_column(nullable=True)
+
+class PlayerPredictionLog(Base):
+    """Frozen pre-game expected count for one player and stat, plus the market's main line at that moment. Insert-only."""
+    __tablename__ = "player_prediction_log"
+    __table_args__ = (
+        UniqueConstraint("game_id", "player_id", "stat", "model_version", "run_id", name="uq_player_prediction_log"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(nullable=False, index=True)
+    model_version: Mapped[str] = mapped_column(nullable=False)
+    logged_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    game_id: Mapped[int] = mapped_column(nullable=False, index=True)
+    game_date: Mapped[int] = mapped_column(nullable=False)
+    player_id: Mapped[int] = mapped_column(nullable=False)
+    team_tri_code: Mapped[str] = mapped_column(nullable=False)
+    role: Mapped[str] = mapped_column(nullable=False)              # "skater" / "goalie"
+    stat: Mapped[str] = mapped_column(nullable=False)              # model target, e.g. shots_on_goal, saves
+    expected: Mapped[float] = mapped_column(nullable=False)
+    market_captured_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    market_line: Mapped[float | None] = mapped_column(nullable=True)
+    market_over_price: Mapped[float | None] = mapped_column(nullable=True)
+    market_under_price: Mapped[float | None] = mapped_column(nullable=True)
+    market_over_prob_novig: Mapped[float | None] = mapped_column(nullable=True)
+    market_n_books: Mapped[int | None] = mapped_column(nullable=True)
+
+class PredictionScore(Base):
+    """Realized score of one logged prediction (kind "team" -> prediction_log.id, "player" -> player_prediction_log.id),
+    against results and the closing snapshot. Written once by the nightly scorer."""
+    __tablename__ = "prediction_scores"
+    __table_args__ = (UniqueConstraint("kind", "log_id", name="uq_prediction_scores"),)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(nullable=False)
+    log_id: Mapped[int] = mapped_column(nullable=False)
+    run_id: Mapped[str] = mapped_column(nullable=False)
+    model_version: Mapped[str] = mapped_column(nullable=False, index=True)
+    game_id: Mapped[int] = mapped_column(nullable=False)
+    game_date: Mapped[int] = mapped_column(nullable=False, index=True)
+    player_id: Mapped[int | None] = mapped_column(nullable=True)
+    stat: Mapped[str] = mapped_column(nullable=False)              # "home_win" for team rows
+    status: Mapped[str] = mapped_column(nullable=False)            # scored / push / no_line / dnp
+    scored_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expected: Mapped[float | None] = mapped_column(nullable=True)  # player expected count
+    actual: Mapped[float | None] = mapped_column(nullable=True)    # player count, or 1/0 home win
+    poisson_deviance: Mapped[float | None] = mapped_column(nullable=True)
+    line: Mapped[float | None] = mapped_column(nullable=True)
+    model_prob: Mapped[float | None] = mapped_column(nullable=True)  # P(home win) / P(over line)
+    outcome: Mapped[int | None] = mapped_column(nullable=True)       # 1 home win / over hit, 0 otherwise
+    log_loss: Mapped[float | None] = mapped_column(nullable=True)
+    market_prob_logged: Mapped[float | None] = mapped_column(nullable=True)  # vig-free, same event, at log time
+    market_prob_close: Mapped[float | None] = mapped_column(nullable=True)
+    market_log_loss_logged: Mapped[float | None] = mapped_column(nullable=True)
+    market_log_loss_close: Mapped[float | None] = mapped_column(nullable=True)
+    clv_prob: Mapped[float | None] = mapped_column(nullable=True)    # close - logged vig-free prob, signed toward the model's side
+    bet_side: Mapped[str | None] = mapped_column(nullable=True)      # home/away/over/under when edge >= threshold
+    bet_edge: Mapped[float | None] = mapped_column(nullable=True)
+    bet_price_logged: Mapped[float | None] = mapped_column(nullable=True)  # American
+    bet_price_close: Mapped[float | None] = mapped_column(nullable=True)
+    clv_price: Mapped[float | None] = mapped_column(nullable=True)   # decimal(logged) / decimal(close) - 1
+    bet_profit: Mapped[float | None] = mapped_column(nullable=True)  # 1-unit flat stake at the logged price
+
+class GameStarter(Base):
+    """Each team's starting goalie for a game: "confirmed" (announced, or seen in net once the game started),
+    "probable" (ESPN's expected starter) or "projected". One row per (game, team); the latest fetch wins.
+    No FK on player_id: a same-day call-up may not be in players yet."""
+    __tablename__ = "game_starters"
+    game_id: Mapped[int] = mapped_column(primary_key=True)
+    team: Mapped[str] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(nullable=False)
+    source: Mapped[str] = mapped_column(nullable=False)
+    fetched_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)

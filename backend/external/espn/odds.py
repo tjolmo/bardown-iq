@@ -311,6 +311,9 @@ def consensus(book_rows: list[dict]) -> dict:
     home_prob = _median(r["home_prob"] for r in good)
     # books whose open snapshot is itself a valid 2-way pair (open_home_prob is set only then)
     opened = [r for r in pregame if r.get("open_home_prob") is not None]
+    total_line = _median(r["total"] for r in totals_from)
+    # over/under prices only from books quoting the consensus total (a 6.0 price says nothing about 6.5)
+    at_line = [r for r in totals_from if total_line is not None and r.get("total") == total_line]
     return {
         "n_books_total": len(pregame),
         "n_books": len(good),
@@ -320,7 +323,9 @@ def consensus(book_rows: list[dict]) -> dict:
         "home_prob_novig": home_prob,
         "away_prob_novig": None if home_prob is None else 1 - home_prob,
         "overround": _median(r["overround"] for r in good),
-        "total_line": _median(r["total"] for r in totals_from),
+        "total_line": total_line,
+        "total_over_price": median_price(r.get("over_odds") for r in at_line),
+        "total_under_price": median_price(r.get("under_odds") for r in at_line),
         "open_home_prob_novig": _median(r["open_home_prob"] for r in opened),
         "open_home_ml": median_price(r.get("open_home_ml") for r in opened),
         "open_away_ml": median_price(r.get("open_away_ml") for r in opened),

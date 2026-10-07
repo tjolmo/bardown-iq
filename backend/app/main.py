@@ -8,7 +8,8 @@ from . import refresh
 from .database import AsyncSessionLocal
 from .schedules import (add_current_teams_to_db, add_old_teams_to_db, fetch_current_rosters_for_all_teams, 
                         fetch_current_schedules_for_all_teams, fetch_all_season_schedules_for_all_teams, scrape_all_player_logs, scrape_team_stats,
-                        fetch_current_scores, fetch_current_player_props, nightly_pipeline, pregame_odds_pipeline)
+                        fetch_current_scores, fetch_current_player_props, nightly_pipeline, pregame_odds_pipeline,
+                        morning_odds_pipeline)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 async def run_startup_refresh():
@@ -38,7 +39,10 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh.run_exclusive, args=["nightly", nightly_pipeline], trigger="cron", hour=3, max_instances=1, coalesce=True, misfire_grace_time=3600)
     scheduler.add_job(fetch_current_scores, trigger="interval", minutes=10)
     # 21:00 UTC is mid/late afternoon in North America: player props are up, most games haven't started
-    scheduler.add_job(refresh.run_exclusive, args=["pregame odds", pregame_odds_pipeline], trigger="cron", hour=21, max_instances=1, coalesce=True, misfire_grace_time=3600)
+    # runs twice so a 21:00 run skipped by a busy lock still happens; the prediction log skips games already logged
+    scheduler.add_job(refresh.run_exclusive, args=["pregame odds", pregame_odds_pipeline], trigger="cron", hour="21,22", max_instances=1, coalesce=True, misfire_grace_time=3600)
+    # 15:00 UTC (late morning ET): an earlier point on the odds price path, ESPN only
+    scheduler.add_job(refresh.run_exclusive, args=["morning odds", morning_odds_pipeline], trigger="cron", hour=15, max_instances=1, coalesce=True, misfire_grace_time=3600)
     scheduler.start()
     refresh.start_in_background("startup", run_startup_refresh)
 

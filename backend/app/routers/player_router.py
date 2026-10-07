@@ -214,6 +214,8 @@ async def get_goalie_prediction(player_id: int, db = Depends(get_db)):
             goals_against=round(pred_ga, 2),
             saves=round(pred_saves, 2),
             save_percentage=round(pred_sv_pct, 4) if pred_sv_pct is not None else None,
+            starting=prediction.get("starting"),
+            starter_status=prediction.get("starter_status"),
         )
     except HTTPException:
         raise

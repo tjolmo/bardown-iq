@@ -41,6 +41,9 @@ def build_game_odds_rows(events: list[dict], books: dict[str, list[dict] | None]
             "n_books": c["n_books"],
             "books": c["books"] or None,
             "espn_event_id": int(e["espn_event_id"]),
+            # snapshot-only fields (game_odds has no columns for them)
+            "total_over_price": c.get("total_over_price"),
+            "total_under_price": c.get("total_under_price"),
         })
     return rows
 

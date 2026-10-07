@@ -15,7 +15,7 @@ async def load_skater_logs(db: AsyncSession, player_ids: list[int] | None = None
         select(
             SkaterGameLog.game_id, SkaterGameLog.player_id, SkaterGameLog.season, SkaterGameLog.game_date,
             SkaterGameLog.player_team_tricode.label("team"), SkaterGameLog.opposing_team_tricode.label("opponent"),
-            _is_home(SkaterGameLog.home_away), Player.position,
+            _is_home(SkaterGameLog.home_away), Player.position, Player.birth_date,
             SkaterGameLog.goals, SkaterGameLog.primary_assists, SkaterGameLog.secondary_assists, SkaterGameLog.points,
             SkaterGameLog.x_goals, SkaterGameLog.toi, SkaterGameLog.shot_attempts, SkaterGameLog.high_danger_shots,
             SkaterGameLog.on_ice_x_goals_percentage, SkaterGameLog.game_score,

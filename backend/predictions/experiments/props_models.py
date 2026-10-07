@@ -82,15 +82,22 @@ if __name__ == "__main__":
                     "the JSON report goes next to it with a .json suffix")
     ap.add_argument("--half-lives", nargs="*", type=float, default=[],
                     help="also run the last variant with recency sample weights of these half-lives (seasons)")
-    ap.add_argument("--cache", action="store_true", help="reuse /scratch/props_data.pkl instead of reloading the DB")
+    ap.add_argument("--cache", action="store_true", help="reuse --cache-path instead of reloading the DB")
+    ap.add_argument("--cache-path", default="/scratch/props_data.pkl")
+    ap.add_argument("--rate-half-life", type=lambda v: None if v.lower() == "none" else float(v), default=F.SKATER_RATE_HALFLIFE_DAYS,
+                    help="calendar half-life (days) of the shrunk per-60 rates (default: production setting)")
+    ap.add_argument("--ratings-half-life", type=lambda v: None if v.lower() == "none" else float(v), default=F.RATING_HALFLIFE_DAYS,
+                    help="calendar half-life (days) in skater_ratings (teammate quality)")
+    ap.add_argument("--ratings-age", default=F.RATING_AGE_MODE, type=lambda v: None if v.lower() == "none" else v,
+                    help="skater_ratings age mode: aging or none (default: production setting)")
     args = ap.parse_args()
     import os
-    if args.cache and os.path.exists("/scratch/props_data.pkl"):
-        skaters, goalies, team_stats, games, odds = pd.read_pickle("/scratch/props_data.pkl")
+    if args.cache and os.path.exists(args.cache_path):
+        skaters, goalies, team_stats, games, odds = pd.read_pickle(args.cache_path)
     else:
         skaters, goalies, team_stats, games, odds = asyncio.run(_load())
         if args.cache:
-            pd.to_pickle((skaters, goalies, team_stats, games, odds), "/scratch/props_data.pkl")
+            pd.to_pickle((skaters, goalies, team_stats, games, odds), args.cache_path)
     tf = context(team_stats, games, goalies, odds)
     report = {}
     if args.goalies:
@@ -114,8 +121,9 @@ if __name__ == "__main__":
     else:
         extra = tuple(c for c in ("shots_on_goal", "pp_toi", "pp_points", "hits", "blocked_shots")
                       if c in skaters and skaters[c].notna().any())
-        lineups = F.played_lineups(skaters, F.skater_ratings(skaters))
-        df, _ = F.skater_features(skaters, tf, extra_stats=extra, shares=F.skater_shares(skaters), lineups=lineups)
+        lineups = F.played_lineups(skaters, F.skater_ratings(skaters, args.ratings_half_life, args.ratings_age))
+        df, _ = F.skater_features(skaters, tf, extra_stats=extra, shares=F.skater_shares(skaters), lineups=lineups,
+                                  rate_half_life_days=args.rate_half_life)
         df = df[df["games_career"] >= 1]
         base = F.SKATER_FEATURE_COLUMNS
         extra_cols = [f"{s}_{w}" for s in extra for w in ("l5", "ewm", "season", "career")]
@@ -125,6 +133,7 @@ if __name__ == "__main__":
             variants["+shares"] = (best + F.SKATER_SHARE_COLUMNS, 2008)
             variants["+teammates"] = (best + F.TEAMMATE_COLUMNS, 2008)
             variants["+shares+teammates"] = (best + F.SKATER_SHARE_COLUMNS + F.TEAMMATE_COLUMNS, 2008)
+            variants["+shares+teammates+age"] = (best + F.SKATER_SHARE_COLUMNS + F.TEAMMATE_COLUMNS + F.SKATER_AGE_COLUMNS, 2008)
         targets = [t for t in args.targets if t in df and df[t].notna().any()]
         for t in args.skater_trend:
             df[f"trend_{t}"] = F.league_trend(df, t)

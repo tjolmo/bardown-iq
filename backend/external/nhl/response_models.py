@@ -24,6 +24,7 @@ class PlayerResponse(BaseModel):
     number: int | None = Field(default=None, alias="sweaterNumber")
     position: str | None = Field(default=None, alias="positionCode")
     shoots_catches: str | None = Field(default=None, alias="shootsCatches")
+    birth_date: datetime.date | None = Field(default=None, alias="birthDate")
     
     # to get the english names 
     @field_validator("first_name", "last_name", mode="before")
@@ -45,6 +46,7 @@ class PlayerLandingResponse(BaseModel):
     number: int | None = Field(default=None, alias="sweaterNumber")
     position: str | None = Field(default=None, alias="positionCode")
     shoots_catches: str | None = Field(default=None, alias="shootsCatches")
+    birth_date: datetime.date | None = Field(default=None, alias="birthDate")
     
     # to get the english names 
     @field_validator("first_name", "last_name", mode="before")
@@ -120,3 +122,22 @@ class GameOdds(BaseModel):
     game_id: int
     home_moneyline: float
     away_moneyline: float
+
+class GameGoalie(BaseModel):
+    """A goalie on one team's roster for a game (from gamecenter landing / play-by-play)."""
+    player_id: int
+    team: str                      # NHL tri code
+    first_name: str | None = None
+    last_name: str | None = None
+    sweater_number: int | None = None
+    # True/False once the play-by-play rosterSpots (dressed players) are posted, None before
+    dressed: bool | None = None
+
+
+class StarterPick(BaseModel):
+    """One team's starting goalie for a game, as stored in game_starters."""
+    game_id: int
+    team: str
+    player_id: int
+    status: str                    # "confirmed" | "probable" | "projected"
+    source: str                    # e.g. "espn", "nhl_pbp"

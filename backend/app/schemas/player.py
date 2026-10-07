@@ -144,6 +144,10 @@ class GoaliePredictionOut(BaseModel):
     goals_against: float
     saves: float
     save_percentage: float | None = None
+    # the numbers above assume he starts; whether he is his team's expected starter, and how sure that is
+    # ("confirmed", "probable" or "projected"; None when unknown)
+    starting: bool | None = None
+    starter_status: str | None = None
 
     class Config:
         from_attributes = True

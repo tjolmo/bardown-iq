@@ -58,14 +58,16 @@ def _live_lineups(team_games: pd.DataFrame, skaters: pd.DataFrame, rosters: pd.D
     return pd.concat([lineups, F.roster_lineups(rosters, missing, ratings)], ignore_index=True)
 
 def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.DataFrame, skaters: pd.DataFrame,
-                   rosters: pd.DataFrame, odds: pd.DataFrame, team_mtime) -> dict:
+                   rosters: pd.DataFrame, odds: pd.DataFrame, team_mtime, known_starters: pd.DataFrame | None = None) -> dict:
     placeholders = _placeholder_games(games, set(team_stats["game_id"]))
     team_games = F.build_team_games(pd.concat([team_stats, _placeholder_team_rows(placeholders)], ignore_index=True))
     team_feats = F.team_history_features(team_games)
-    starters = F.starter_features(team_games, goalies) if not goalies.empty else None
-    # player models also see the market's implied goals (stored nightly, incl. today's pre-game prices)
-    player_ctx = F.add_player_context(team_feats, F.implied_team_goals(games, odds), starters)
+    # starters: confirmed/probable (game_starters table) for upcoming games, else the projection; actual starters
+    # for played games, as in training
+    picks = F.starter_picks(team_games, goalies, known_starters, prefer_actual=True) if not goalies.empty else None
+    starters = F.starter_features(team_games, goalies, picks=picks) if picks is not None else None
     win_probs: dict[int, float] = {}
+    model_goals = None
     lineups = None
     # latest skater ratings are saved with both the team and skater models, so teammate quality works with either
     ratings = None
@@ -88,7 +90,25 @@ def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.Da
         if not frame.empty:
             p = bundle["model"].predict_proba(frame[bundle["features"]])[:, 1]
             win_probs = dict(zip(frame["game_id"].astype(int), p.astype(float)))
-    return {"team_feats": player_ctx, "win_probs": win_probs, "placeholders": placeholders, "lineups": lineups}
+            if "goals" in bundle:
+                model_goals = F.model_team_goals(frame, bundle["goals"])
+    # player models also see the market's implied goals (stored nightly, incl. today's pre-game prices); games
+    # without odds get the team goals model's expected goals instead
+    player_ctx = F.add_player_context(team_feats, F.implied_team_goals(games, odds), starters, fallback=model_goals)
+    if picks is not None:
+        picks = picks[picks["game_id"].isin(placeholders["id"])].set_index(["game_id", "team"])
+    return {"team_feats": player_ctx, "win_probs": win_probs, "placeholders": placeholders, "lineups": lineups,
+            "starter_picks": picks}
+
+async def _load_known_starters(db: AsyncSession) -> pd.DataFrame | None:
+    """Confirmed / probable starters from game_starters (None if the table is missing or unreadable)."""
+    from app.crud.game_starters import load_game_starters
+    try:
+        return await load_game_starters(db)
+    except Exception as e:
+        await db.rollback()
+        print(f"Could not load game_starters, using projected starters: {e!r}")
+        return None
 
 async def _team_context(db: AsyncSession) -> dict:
     """Pre-game team features and win probabilities for every scheduled game, rebuilt at most every 10 minutes."""
@@ -106,7 +126,9 @@ async def _team_context(db: AsyncSession) -> dict:
         rosters = await load_current_rosters(db)
         odds = await load_game_odds(db)
         # the Elo loop, starter guesses and groupbys take a moment, so keep them off the event loop
-        built = await asyncio.to_thread(_build_context, team_stats, games, goalies, skaters, rosters, odds, team_mtime)
+        known_starters = await _load_known_starters(db)
+        built = await asyncio.to_thread(_build_context, team_stats, games, goalies, skaters, rosters, odds, team_mtime,
+                                        known_starters=known_starters)
         _context.update(built, built_at=time.monotonic(), team_mtime=team_mtime)
         return _context
 
@@ -188,7 +210,18 @@ async def predict_goalie(db: AsyncSession, player_id: int, team: str, game) -> d
     for t in bundle["models"]:
         margin = np.log([bundle["trends"][t]]) if t in bundle["trends"] else None
         out[t] = float(bundle["models"][t].predict(X, base_margin=margin)[0])
-    return out
+    return {**out, **goalie_start_info(ctx.get("starter_picks"), game.id, team, player_id)}
+
+def goalie_start_info(picks: pd.DataFrame | None, game_id: int, team: str, player_id: int) -> dict:
+    """Whether the goalie is his team's expected starter for the game (`starting`) and how sure that is
+    (`starter_status`: confirmed / probable / projected; None when unknown). The rates above assume he starts."""
+    try:
+        pick = picks.loc[(game_id, team)] if picks is not None else None
+    except KeyError:
+        pick = None
+    if pick is None or pd.isna(pick["player_id"]):
+        return {"starting": None, "starter_status": None}
+    return {"starting": int(pick["player_id"]) == int(player_id), "starter_status": str(pick["status"])}
 
 # Odds API prop markets -> the model stat that settles them
 PROP_STATS = {"player_goals": "goals", "player_assists": "assists", "player_points": "points",

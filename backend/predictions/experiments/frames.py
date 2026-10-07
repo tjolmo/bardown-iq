@@ -40,15 +40,18 @@ def build() -> pd.DataFrame:
     return frame.merge(odds, on="game_id", how="left").reset_index(drop=True)
 
 def evaluate(frame: pd.DataFrame, cols: list[str], model_factory=_team_logistic, test_seasons=TEST_SEASONS,
-             playoffs: bool = False) -> dict:
+             playoffs: bool = False, months: list[int] | None = None) -> dict:
     """Rolling-origin: for each test season, fit on all seasons before the previous one (that one is reserved for
     early stopping / stacking; playoff games included, as in production), score on the test season's regular
     season (or its playoffs with `playoffs=True`). Returns per-season log loss and the mean, plus the market's
-    log loss on the same games where it has a line (NaN for seasons without lines)."""
+    log loss on the same games where it has a line (NaN for seasons without lines). `months` (e.g. [3, 4]) scores
+    only test games in those calendar months."""
     out = {}
     is_po = frame["is_playoff"] == 1 if "is_playoff" in frame else pd.Series(False, index=frame.index)
     for test in test_seasons:
         tr, te = frame[frame["season"] < test - 1], frame[(frame["season"] == test) & (is_po == playoffs)]
+        if months is not None:
+            te = te[(te["date"] // 100 % 100).isin(months)]
         p = model_factory().fit(tr[cols], tr["home_win"].astype(int)).predict_proba(te[cols])[:, 1]
         m = te["mkt"].notna().to_numpy()
         on_mkt = (lambda q: log_loss(te["home_win"][m], q[m], labels=[0, 1])) if m.any() else (lambda q: np.nan)

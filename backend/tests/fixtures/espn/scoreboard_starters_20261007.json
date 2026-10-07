@@ -1,0 +1,208 @@
+{
+ "events": [
+  {
+   "id": "401891830",
+   "date": "2026-10-07T23:30Z",
+   "shortName": "PIT @ WSH",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_SCHEDULED"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "WSH"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4272888,
+         "athlete": {
+          "id": "4272888",
+          "fullName": "Logan Thompson",
+          "displayName": "Logan Thompson",
+          "shortName": "L. Thompson",
+          "jersey": "48",
+          "position": "G"
+         },
+         "status": {
+          "id": "101",
+          "name": "Expected",
+          "type": "expected",
+          "abbreviation": "Expected"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "PIT"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4576894,
+         "athlete": {
+          "id": "4576894",
+          "fullName": "Arturs Silovs",
+          "displayName": "Arturs Silovs",
+          "shortName": "A. Silovs",
+          "jersey": "37",
+          "position": "G"
+         },
+         "status": {
+          "id": "101",
+          "name": "Expected",
+          "type": "expected",
+          "abbreviation": "Expected"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401892455",
+   "date": "2026-10-07T23:30Z",
+   "shortName": "COL @ WPG",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_SCHEDULED"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "WPG"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4268767,
+         "athlete": {
+          "id": "4268767",
+          "fullName": "Stuart Skinner",
+          "displayName": "Stuart Skinner",
+          "shortName": "S. Skinner",
+          "jersey": "74",
+          "position": "G"
+         },
+         "status": {
+          "id": "101",
+          "name": "Expected",
+          "type": "expected",
+          "abbreviation": "Expected"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "COL"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 3904177,
+         "athlete": {
+          "id": "3904177",
+          "fullName": "Mackenzie Blackwood",
+          "displayName": "Mackenzie Blackwood",
+          "shortName": "M. Blackwood",
+          "jersey": "39",
+          "position": "G"
+         },
+         "status": {
+          "id": "101",
+          "name": "Expected",
+          "type": "expected",
+          "abbreviation": "Expected"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401892456",
+   "date": "2026-10-08T02:00Z",
+   "shortName": "EDM @ ANA",
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_SCHEDULED"
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "team": {
+        "abbreviation": "ANA"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4588165,
+         "athlete": {
+          "id": "4588165",
+          "fullName": "Lukas Dostal",
+          "displayName": "Lukas Dostal",
+          "shortName": "L. Dostal",
+          "jersey": "1",
+          "position": "G"
+         },
+         "status": {
+          "id": "101",
+          "name": "Expected",
+          "type": "expected",
+          "abbreviation": "Expected"
+         }
+        }
+       ]
+      },
+      {
+       "homeAway": "away",
+       "team": {
+        "abbreviation": "EDM"
+       },
+       "probables": [
+        {
+         "name": "probableStartingGoalie",
+         "playerId": 4894487,
+         "athlete": {
+          "id": "4894487",
+          "fullName": "Devon Levi",
+          "displayName": "Devon Levi",
+          "shortName": "D. Levi",
+          "jersey": "27",
+          "position": "G"
+         },
+         "status": {
+          "id": "102",
+          "name": "Confirmed",
+          "type": "confirmed",
+          "abbreviation": "Confirmed"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

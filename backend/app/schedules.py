@@ -25,6 +25,7 @@ from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
 from .crud.game_odds import upsert_game_odds, get_games_for_odds_matching
 from external.espn.game_odds import fetch_game_odds
 from .crud.player_prop_odds import upsert_player_prop_odds, get_known_athlete_ids, get_player_match_data
+from .crud.odds_snapshots import insert_game_odds_snapshots, insert_player_prop_snapshots
 from external.espn.props import fetch_player_prop_odds
 from external.espn.player_ids import build_player_index
 from app.database import AsyncSessionLocal
@@ -292,6 +293,16 @@ async def train_models():
         await train_all_models(db)
 
 
+async def append_snapshots(name: str, insert_fn, db, rows: list[dict]) -> int:
+    """Writes odds snapshots; a failure only loses this run's snapshots, never the current/opening tables."""
+    try:
+        return await insert_fn(db, rows)
+    except Exception as e:
+        await db.rollback()
+        print(f"Failed to store {name} snapshots: {e!r}")
+        return 0
+
+
 async def fetch_game_odds_for_range(start: datetime.date, end: datetime.date, cache_dir: str | None = None) -> int:
     """Fetches ESPN closing odds for start..end, matches them to games in the DB and upserts them."""
     def yyyymmdd(d: datetime.date) -> int:
@@ -302,7 +313,9 @@ async def fetch_game_odds_for_range(start: datetime.date, end: datetime.date, ca
         # blocking threaded HTTP, so keep it off the event loop
         rows, client = await asyncio.to_thread(fetch_game_odds, start, end, games, cache_dir)
         await upsert_game_odds(db, rows)
-    print(f"Game odds {start}..{end}: upserted {len(rows)} games ({client.fetched} network fetches)")
+        # append-only price path (pre-game prices, plus the frozen close once a game is final)
+        snapshots = await append_snapshots("game odds", insert_game_odds_snapshots, db, rows)
+    print(f"Game odds {start}..{end}: upserted {len(rows)} games, {snapshots} snapshots ({client.fetched} network fetches)")
     return len(rows)
 
 async def fetch_recent_game_odds(days: int = 3):
@@ -324,9 +337,10 @@ async def fetch_player_prop_odds_for_range(start: datetime.date, end: datetime.d
         # blocking threaded HTTP, so keep it off the event loop
         rows, report = await asyncio.to_thread(fetch_player_prop_odds, start, end, games, index, known, cache_dir)
         await upsert_player_prop_odds(db, rows)
+        snapshots = await append_snapshots("player prop", insert_player_prop_snapshots, db, rows)
     stats = report["stats"]
     print(f"Player props {start}..{end}: {stats['events_with_props']}/{report['events']} events with props, "
-          f"upserted {len(rows)} markets; athletes matched {report['athletes_matched']}/{report['athletes']}; "
+          f"upserted {len(rows)} markets ({snapshots} snapshots); athletes matched {report['athletes_matched']}/{report['athletes']}; "
           f"markets dropped: {stats['markets_unmatched_player']} unmatched player, {stats['markets_unmatched_game']} unmatched game; "
           f"{report['network_fetches']} network fetches")
     if report["unmatched"]:
@@ -350,11 +364,69 @@ async def run_step(name: str, step):
         return False
     return True
 
+def current_game_day(now: datetime.datetime | None = None) -> datetime.date:
+    """The North American game day: UTC shifted back 12 hours (as predictions.predict._today)."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return (now - datetime.timedelta(hours=12)).date()
+
+async def fetch_confirmed_starters(days: int = 1, game_day: datetime.date | None = None) -> int:
+    """Starting goalies for the next `days` game days' unfinished games into game_starters: confirmed/expected
+    starters from ESPN, matched to NHL ids via the gamecenter rosters, or the goalie actually in net once a game
+    has started (NHL play-by-play). Teams without either keep the model's projection. Returns rows written."""
+    from external.espn.starters import fetch_probable_goalies, resolve_starters
+    from external.nhl.games import fetch_game_goalies
+    from .crud.game_starters import upsert_game_starters
+    first = game_day or current_game_day()
+    dates = [first + datetime.timedelta(days=i) for i in range(days)]
+    async with AsyncSessionLocal() as db:
+        games = [g for d in dates for g in await get_all_games_for_date(db, int(d.strftime("%Y%m%d")))
+                 if g.game_state not in FINISHED_GAME_STATES]
+        if not games:
+            print(f"Starters: no unfinished games on {dates[0]}..{dates[-1]}")
+            return 0
+        picks = await fetch_probable_goalies(dates)
+        rosters = await gather_bounded([fetch_game_goalies(g.id) for g in games])
+        starters, problems = [], []
+        for game, (goalies, pbp_starters) in zip(games, rosters):
+            # the same matchup can be played on consecutive nights, so match ESPN events on start time too
+            near = [p for p in picks if p["start"] is None or abs((p["start"] - game.start_time).total_seconds()) < 12 * 3600]
+            found, issues = resolve_starters(game.id, game.home_team_tri_code, game.away_team_tri_code, near, goalies, pbp_starters)
+            starters.extend(found)
+            problems.extend(issues)
+        written = await upsert_game_starters(db, starters)
+    if written:
+        # rebuild the cached prediction context on next use so it picks up the new starters
+        from predictions import predict
+        predict._context["built_at"] = 0.0
+    counts = {status: sum(s.status == status for s in starters) for status in ("confirmed", "probable")}
+    print(f"Starters: {written} team-games stored for {len(games)} games ({counts}); missing {len(problems)}: {problems[:10]}")
+    return written
+
 async def pregame_odds_pipeline():
     """Game lines and player props for today's games. ESPN posts player props only on game day, so the
-    3am nightly run misses pre-game prices; this runs in the late afternoon (North American time)."""
+    3am nightly run misses pre-game prices; this runs in the late afternoon (North American time).
+    Starting goalies go first so the props and predictions logged after them use the announced starters."""
+    await run_step("starting goalies", fetch_confirmed_starters)
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("player prop odds", fetch_recent_player_prop_odds)
+    # last: freezes today's predictions next to the market snapshot just fetched (forward test)
+    await run_step("prediction log", log_todays_predictions)
+
+async def morning_odds_pipeline():
+    """A late-morning (ET) price snapshot, so the price path has an early point between the open and the
+    afternoon log. Only ESPN (no metered Odds API calls)."""
+    await run_step("game odds", fetch_recent_game_odds)
+    await run_step("player prop odds", fetch_recent_player_prop_odds)
+
+async def log_todays_predictions():
+    from predictions.prediction_log import log_predictions
+    async with AsyncSessionLocal() as db:
+        print(f"Prediction log: {await log_predictions(db)}")
+
+async def score_logged_predictions():
+    from predictions.prediction_log import score_predictions
+    async with AsyncSessionLocal() as db:
+        print(f"Prediction scores: {await score_predictions(db)}")
 
 async def nightly_pipeline():
     """Runs the nightly jobs in dependency order: schedules and rosters first (new games and players),
@@ -368,6 +440,8 @@ async def nightly_pipeline():
         print("Skipping training: player log scrape failed")
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("player prop odds", fetch_recent_player_prop_odds)
+    # after the fetches above captured last night's closing prices and the logs scrape brought the box scores
+    await run_step("prediction scoring", score_logged_predictions)
     await run_step("props", fetch_current_player_props)
     if logs_ok:
         await run_step("training", train_models)

@@ -23,6 +23,7 @@ async def upsert_scraped_player(db: AsyncSession, player_data: PlayerResponse|Pl
             "number": stmt.excluded.number,
             "position": stmt.excluded.position,
             "shoots_catches": stmt.excluded.shoots_catches,
+            "birth_date": func.coalesce(stmt.excluded.birth_date, Player.birth_date),
         }
     )
     await db.execute(stmt)
@@ -175,3 +176,14 @@ async def get_players_on_teams(db: AsyncSession, tri_codes: list[str]) -> list[P
     """Fetches all players currently on any of the given teams."""
     result = await db.execute(select(Player).where(Player.current_team_tri_code.in_(tri_codes)))
     return list(result.scalars().all())
+
+async def get_player_ids_missing_birth_date(db: AsyncSession) -> list[int]:
+    """IDs of players with no stored birth date."""
+    result = await db.execute(select(Player.id).where(Player.birth_date.is_(None)).order_by(Player.id))
+    return list(result.scalars().all())
+
+async def set_player_birth_dates(db: AsyncSession, birth_dates: dict[int, datetime.date]):
+    """Bulk-sets birth dates by player ID."""
+    for player_id, birth_date in birth_dates.items():
+        await db.execute(update(Player).where(Player.id == player_id).values(birth_date=birth_date))
+    await db.commit()

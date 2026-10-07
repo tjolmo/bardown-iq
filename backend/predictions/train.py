@@ -7,7 +7,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, PoissonRegressor
 from sklearn.metrics import log_loss, mean_poisson_deviance, roc_auc_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -36,6 +36,10 @@ async def train_all_models(db: AsyncSession) -> dict:
 def _fit_all(skaters, goalies, team_stats, games, odds) -> dict:
     team_games = F.build_team_games(team_stats)
     team_feats = F.team_history_features(team_games)
+    # actual starters for played games: live games use the confirmed/probable starter (game_starters), which is
+    # what the actual starter approximates (the projection is only the fallback when none is announced)
+    # projected starters, as in the experiments: "actual" (most ice time) labels the backup as starter when the
+    # starter is pulled early, tying a worse goalie to games already going badly (a leak); live uses announced starters
     starters = F.starter_features(team_games, goalies) if not goalies.empty else None
     player_ctx = F.add_player_context(team_feats, F.implied_team_goals(games, odds), starters)
     metrics = {"trained_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
@@ -45,7 +49,8 @@ def _fit_all(skaters, goalies, team_stats, games, odds) -> dict:
     side_feats = [starters] if starters is not None else []
     ratings = F.skater_ratings(skaters)
     side_feats.append(F.roster_ratings(F.expected_lineups(skaters, team_games), ratings))
-    metrics["teams"] = _fit_teams(games, team_feats, side_feats, odds, F.latest_skater_ratings(ratings))
+    metrics["teams"] = _fit_teams(games, team_feats, side_feats, odds, F.latest_skater_ratings(ratings),
+                                  team_games=team_games, goalies=goalies)
     METRICS_PATH.write_text(json.dumps(metrics, indent=1))
     return metrics
 
@@ -184,8 +189,29 @@ def _team_training_rows(df: pd.DataFrame) -> pd.DataFrame:
     nhl = (df["game_id"] // 10000 % 100).isin([2, 3])
     return df[nhl & df["home_win"].notna() & df["home_games_season"].notna()].copy()
 
+def _team_poisson():
+    return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), PoissonRegressor(alpha=1e-3, max_iter=1000))
+
+def _fit_team_goals(df: pd.DataFrame, overtime: pd.Series) -> tuple[dict, dict]:
+    """Goals model (see features "goals model") on finished regular-season games: one Poisson regression per side
+    for regulation goals (an overtime/shootout game was tied after 60 minutes at the loser's score), the tie
+    inflation that matches the observed regulation-tie rate, and the home share of overtime/shootout wins."""
+    regular = (df["game_id"] // 10000 % 100 == 2).to_numpy()
+    d, ot = df[regular], overtime[regular]
+    low = np.minimum(d["home_score"], d["away_score"])
+    reg_home, reg_away = np.where(ot, low, d["home_score"]), np.where(ot, low, d["away_score"])
+    X = d[F.TEAM_GOALS_COLUMNS]
+    home, away = _team_poisson().fit(X, reg_home), _team_poisson().fit(X, reg_away)
+    _, tie = F.regulation_outcome_probs(home.predict(X), away.predict(X))
+    goals = {"home": home, "away": away, "features": F.TEAM_GOALS_COLUMNS,
+             "tie_inflation": float(ot.mean() / tie.mean()), "ot_home_share": float(d.loc[ot, "home_win"].mean())}
+    metrics = {"overtime_rate": round(float(ot.mean()), 4), "tie_inflation": round(goals["tie_inflation"], 4),
+               "ot_home_share": round(goals["ot_home_share"], 4)}
+    return goals, metrics
+
 def _fit_teams(games: pd.DataFrame, team_feats: pd.DataFrame, side_feats: list, odds: pd.DataFrame,
-               latest_ratings: pd.DataFrame) -> dict:
+               latest_ratings: pd.DataFrame, team_games: pd.DataFrame | None = None,
+               goalies: pd.DataFrame | None = None) -> dict:
     df = _team_training_rows(F.build_team_model_frame(games, team_feats, side_feats))
     df["date"] = pd.to_datetime(df["date"].astype(str), format="%Y%m%d")
     df["home_win"] = df["home_win"].astype(int)
@@ -211,8 +237,13 @@ def _fit_teams(games: pd.DataFrame, team_feats: pd.DataFrame, side_feats: list, 
     print("  " + "  ".join(f"{k}={v}" for k, v in metrics.items()))
 
     final = _team_logistic().fit(df[cols], df["home_win"])
+    bundle = {"model": final, "features": cols, "skater_ratings": latest_ratings}
+    # expected team goals for player models when a game has no odds
+    if team_games is not None and goalies is not None:
+        overtime = F.went_to_overtime(df, team_games, goalies)
+        bundle["goals"], metrics["goals_model"] = _fit_team_goals(df, overtime)
     # live roster ratings look players up here instead of reloading every career on each refresh
-    _save({"model": final, "features": cols, "skater_ratings": latest_ratings}, TEAM_BUNDLE)
+    _save(bundle, TEAM_BUNDLE)
     return metrics
 
 async def _main():
