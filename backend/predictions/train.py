@@ -15,6 +15,7 @@ from xgboost import XGBRegressor
 from . import features as F
 from .config import (
     SKATER_BUNDLE, GOALIE_BUNDLE, TEAM_BUNDLE, METRICS_PATH, SKATER_TARGETS, GOALIE_TARGETS, GOALIE_TREND_TARGETS,
+    SKATER_EXTRA_STATS, SKATER_TREND_TARGETS,
     VALIDATION_FRACTION, POISSON_PARAMS, GOALIE_POISSON_PARAMS,
 )
 from .data import load_skater_logs, load_goalie_logs, load_team_stats, load_games, load_game_odds
@@ -34,11 +35,13 @@ async def train_all_models(db: AsyncSession) -> dict:
 def _fit_all(skaters, goalies, team_stats, games, odds) -> dict:
     team_games = F.build_team_games(team_stats)
     team_feats = F.team_history_features(team_games)
+    starters = F.starter_features(team_games, goalies) if not goalies.empty else None
+    player_ctx = F.add_player_context(team_feats, F.implied_team_goals(games, odds), starters)
     metrics = {"trained_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
-    metrics["skaters"] = _fit_skaters(skaters, team_feats)
+    metrics["skaters"] = _fit_skaters(skaters, player_ctx)
     if not goalies.empty:
-        metrics["goalies"] = _fit_goalies(goalies, team_feats)
-    side_feats = [F.starter_features(team_games, goalies)] if not goalies.empty else []
+        metrics["goalies"] = _fit_goalies(goalies, player_ctx)
+    side_feats = [starters] if starters is not None else []
     ratings = F.skater_ratings(skaters)
     side_feats.append(F.roster_ratings(F.expected_lineups(skaters, team_games), ratings))
     metrics["teams"] = _fit_teams(games, team_feats, side_feats, odds, F.latest_skater_ratings(ratings))
@@ -94,15 +97,31 @@ def _dev(y, mu) -> float:
 # ---------- skaters ----------
 
 def _fit_skaters(skaters: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
-    df, league_rates = F.skater_features(skaters, team_feats)
+    extra = tuple(c for c in SKATER_EXTRA_STATS if c in skaters and skaters[c].notna().any())
+    df, league_rates = F.skater_features(skaters, team_feats, extra_stats=extra)
     df = df[df["games_career"] >= 1]    # a player's first game has no history to predict from
+    targets = [t for t in SKATER_TARGETS if t in df and df[t].notna().any()]
+    trend_targets = [t for t in SKATER_TREND_TARGETS if t in targets]
+    for t in trend_targets:
+        df[f"trend_{t}"] = F.league_trend(df, t)
 
     def baselines(train, valid, target):
-        return {"league_mean": np.full(len(valid), train[target].mean()), "rate_x_toi": valid[f"exp_{target}"].to_numpy()}
+        out = {"league_mean": np.full(len(valid), train[target].mean())}
+        if f"exp_{target}" in valid:
+            out["rate_x_toi"] = valid[f"exp_{target}"].to_numpy()
+        return out
 
     print("Training skater models")
-    models, metrics = _fit_count_models(df, SKATER_TARGETS, F.SKATER_FEATURE_COLUMNS, POISSON_PARAMS, baselines)
-    _save({"models": models, "features": F.SKATER_FEATURE_COLUMNS, "league_rates": league_rates}, SKATER_BUNDLE)
+    cols = F.SKATER_FEATURE_COLUMNS + F.MARKET_CONTEXT + [f"{s}_{w}" for s in extra for w in ("l5", "ewm", "season", "career")]
+    models, metrics = {}, {}
+    for t in targets:
+        # a few old rows lack the newer stats; each model trains on the rows that have its target
+        m, met = _fit_count_models(df[df[t].notna()], [t], cols, POISSON_PARAMS, baselines, trend_targets)
+        models.update(m)
+        metrics.update(met)
+    trends = {t: F.latest_league_trend(df, t) for t in trend_targets}
+    _save({"models": models, "features": cols, "league_rates": league_rates, "extra_stats": extra, "trends": trends},
+          SKATER_BUNDLE)
     return metrics
 
 # ---------- goalies ----------
@@ -119,11 +138,11 @@ def _fit_goalies(goalies: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
         return {"league_mean": np.full(len(valid), train[target].mean())}
 
     print("Training goalie models")
-    models, metrics = _fit_count_models(df, GOALIE_TARGETS, F.GOALIE_FEATURE_COLUMNS, GOALIE_POISSON_PARAMS,
-                                        baselines, GOALIE_TREND_TARGETS)
+    cols = F.GOALIE_FEATURE_COLUMNS + F.MARKET_CONTEXT
+    models, metrics = _fit_count_models(df, GOALIE_TARGETS, cols, GOALIE_POISSON_PARAMS, baselines, GOALIE_TREND_TARGETS)
     # live predictions use the latest league level (retrained nightly, and the trend moves slowly)
     trends = {t: F.latest_league_trend(df, t) for t in GOALIE_TREND_TARGETS}
-    _save({"models": models, "features": F.GOALIE_FEATURE_COLUMNS, "trends": trends}, GOALIE_BUNDLE)
+    _save({"models": models, "features": cols, "trends": trends}, GOALIE_BUNDLE)
     return metrics
 
 # ---------- teams ----------

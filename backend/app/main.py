@@ -8,7 +8,7 @@ from . import refresh
 from .database import AsyncSessionLocal
 from .schedules import (add_current_teams_to_db, add_old_teams_to_db, fetch_current_rosters_for_all_teams, 
                         fetch_current_schedules_for_all_teams, fetch_all_season_schedules_for_all_teams, scrape_all_player_logs, scrape_team_stats,
-                        fetch_current_scores, fetch_current_player_props, nightly_pipeline)
+                        fetch_current_scores, fetch_current_player_props, nightly_pipeline, pregame_odds_pipeline)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 async def run_startup_refresh():
@@ -37,6 +37,8 @@ async def lifespan(app: FastAPI):
     # run through the shared lock so the nightly run never overlaps a startup or manual refresh
     scheduler.add_job(refresh.run_exclusive, args=["nightly", nightly_pipeline], trigger="cron", hour=3, max_instances=1, coalesce=True, misfire_grace_time=3600)
     scheduler.add_job(fetch_current_scores, trigger="interval", minutes=10)
+    # 21:00 UTC is mid/late afternoon in North America: player props are up, most games haven't started
+    scheduler.add_job(refresh.run_exclusive, args=["pregame odds", pregame_odds_pipeline], trigger="cron", hour=21, max_instances=1, coalesce=True, misfire_grace_time=3600)
     scheduler.start()
     refresh.start_in_background("startup", run_startup_refresh)
 

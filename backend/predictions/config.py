@@ -10,11 +10,15 @@ TEAM_BUNDLE = MODEL_DIR / "team.joblib"
 METRICS_PATH = MODEL_DIR / "metrics.json"
 
 # one Poisson model per stat; P(at least one) = 1 - exp(-expected), so counts and probabilities always agree
-SKATER_TARGETS = ["goals", "assists", "points"]
-GOALIE_TARGETS = ["goals_against", "sog"]
+SKATER_TARGETS = ["goals", "assists", "points", "shots_on_goal"]
+# skater stats beyond the core box score (stored since the shots/power-play backfill), used as extra inputs
+SKATER_EXTRA_STATS = ("shots_on_goal", "pp_toi", "pp_points")
+# shots per skater fell ~10% from 2023 to 2025; the league trend keeps shots-on-goal predictions unbiased
+SKATER_TREND_TARGETS = ["shots_on_goal"]
+GOALIE_TARGETS = ["goals_against", "sog", "saves"]
 # targets whose league level drifts over time get the league trend as their Poisson base margin
 # (shots per game fell ~10% from 2021 to 2025; goals against didn't drift, and the trend made it slightly worse)
-GOALIE_TREND_TARGETS = ["sog"]
+GOALIE_TREND_TARGETS = ["sog", "saves"]
 
 # the most recent fraction of game dates is held out to pick the number of trees and report out-of-time metrics;
 # the saved model is then refit on all games with that many trees

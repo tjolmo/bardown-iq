@@ -12,7 +12,8 @@ from app.schemas.player import (GoalieLast5BasicStatsGetOut, GoalieSeasonBasicSt
 from app.crud.players import get_player_by_id, search_players_by_name, get_player_current_team_tri_code
 from app.crud.skater_game_logs import get_skater_last_5_basic_stats_from_db, get_player_game_log_by_game_and_player_id, get_skater_season_basic_stats_from_db
 from app.crud.goalie_game_logs import get_goalie_last_5_basic_stats_from_db, get_goalie_season_basic_stats_from_db
-from predictions.predict import predict_skater, predict_goalie
+from predictions.predict import predict_skater, predict_goalie, prop_probability
+from app.models import Games
 
 router = APIRouter(prefix="/players", tags=["players"])
 
@@ -181,6 +182,7 @@ async def get_skater_prediction(player_id: int, db = Depends(get_db)):
             prob_goal=round(prediction["prob_goals"], 4),
             prob_assist=round(prediction["prob_assists"], 4),
             prob_point=round(prediction["prob_points"], 4),
+            shots_on_goal=round(prediction["shots_on_goal"], 2) if "shots_on_goal" in prediction else None,
         )
     except HTTPException:
         raise
@@ -204,8 +206,10 @@ async def get_goalie_prediction(player_id: int, db = Depends(get_db)):
         if prediction is None:
             raise HTTPException(status_code=404, detail=f"No game logs for goalie {player_id} in DB")
         pred_ga, pred_sog = prediction["goals_against"], prediction["sog"]
-        pred_saves = max(0.0, pred_sog - pred_ga)
-        pred_sv_pct = (pred_saves / pred_sog) if pred_sog > 0 else None
+        # the saves model is trained on saves directly (sharper than shots minus goals); older bundles lack it
+        pred_saves = prediction.get("saves", max(0.0, pred_sog - pred_ga))
+        shots = pred_saves + pred_ga
+        pred_sv_pct = (pred_saves / shots) if shots > 0 else None
         return GoaliePredictionOut(
             goals_against=round(pred_ga, 2),
             saves=round(pred_saves, 2),
@@ -246,9 +250,27 @@ async def get_top_players(player_type: str, season: int, n: int, db = Depends(ge
 
 @router.get("/props/{player_id}", status_code=200, response_model=list[PlayerPropOut])
 async def get_player_props(player_id: int, db = Depends(get_db)):
-    """Fetches player props for a player from the database."""
+    """Fetches player props for a player from the database, with the model's chance for each side."""
     try:
         player_props = await get_player_props_from_db(db, player_id)
-        return player_props
+        if not player_props:
+            return player_props
+        out = [PlayerPropOut.model_validate(p, from_attributes=True) for p in player_props]
+        try:
+            game = await db.get(Games, out[0].game_id)
+            player = await get_player_by_id(db, player_id)
+            team = player.current_team_tri_code if player else None
+            if game is not None and team in (game.home_team_tri_code, game.away_team_tri_code):
+                predict = predict_goalie if player.position == "G" else predict_skater
+                expected = await predict(db, player_id, team, game) or {}
+                for prop in out:
+                    prop.model_prob = prop_probability(expected, prop.prop_type, prop.line, prop.over_under)
+                    if prop.model_prob is not None:
+                        decimal = 1 + prop.odds / 100 if prop.odds > 0 else 1 + 100 / abs(prop.odds)
+                        prop.edge = round(prop.model_prob * decimal - 1, 4)
+                        prop.model_prob = round(prop.model_prob, 4)
+        except (FileNotFoundError, LookupError):
+            pass    # props still show without model numbers until models are trained
+        return out
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving player props from DB: {e}")

@@ -59,6 +59,9 @@ class SkaterGameLog(Base):
     shot_attempts: Mapped[int] = mapped_column(nullable=False)
     on_ice_x_goals_percentage: Mapped[float] = mapped_column(nullable=False)
     game_score: Mapped[float] = mapped_column(nullable=False)
+    shots_on_goal: Mapped[int | None] = mapped_column(nullable=True)
+    pp_toi: Mapped[float | None] = mapped_column(nullable=True)  # 5on4 ice time, seconds
+    pp_points: Mapped[int | None] = mapped_column(nullable=True)  # 5on4 points
     last_updated: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
     player: Mapped["Player"] = relationship("Player", back_populates="game_logs")
 
@@ -251,4 +254,28 @@ class GameOdds(Base):
     n_books: Mapped[int] = mapped_column(nullable=False, default=0)
     books: Mapped[str | None] = mapped_column(nullable=True)
     espn_event_id: Mapped[int | None] = mapped_column(nullable=True)
+    last_updated: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
+
+class PlayerPropOdds(Base):
+    """One player prop market (one book, one line) for a game, from ESPN's core API (Feb 2024 onward).
+
+    over_price / under_price are American odds of the latest pre-game snapshot (frozen at puck drop for finished
+    games); one-sided markets (anytime/first goal, "N+" milestones) only have over_price. open_* is the book's
+    opening market, which can be a different line than `line` (open_line); `sides_inferred` marks DraftKings rows,
+    whose over/under labels are inferred from row order (see external/espn/props.py)."""
+    __tablename__ = "player_prop_odds"
+    game_id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), primary_key=True, index=True)
+    prop_type: Mapped[str] = mapped_column(primary_key=True)
+    line: Mapped[float] = mapped_column(primary_key=True)
+    book: Mapped[str] = mapped_column(primary_key=True)
+    espn_athlete_id: Mapped[int] = mapped_column(nullable=False, index=True)
+    espn_event_id: Mapped[int | None] = mapped_column(nullable=True)
+    over_price: Mapped[float | None] = mapped_column(nullable=True)
+    under_price: Mapped[float | None] = mapped_column(nullable=True)
+    open_line: Mapped[float | None] = mapped_column(nullable=True)
+    open_over_price: Mapped[float | None] = mapped_column(nullable=True)
+    open_under_price: Mapped[float | None] = mapped_column(nullable=True)
+    sides_inferred: Mapped[bool] = mapped_column(nullable=False, default=False)
+    espn_last_updated: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_updated: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))

@@ -1,5 +1,5 @@
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import SkaterGameLog
 from external.moneypuck.response_models import SkaterGameLogResponse
@@ -31,6 +31,9 @@ async def upsert_scraped_game_logs(db: AsyncSession, game_logs_data: list[Skater
                 "shot_attempts": stmt.excluded.shot_attempts,
                 "on_ice_x_goals_percentage": stmt.excluded.on_ice_x_goals_percentage,
                 "game_score": stmt.excluded.game_score,
+                "shots_on_goal": func.coalesce(stmt.excluded.shots_on_goal, SkaterGameLog.shots_on_goal),
+                "pp_toi": func.coalesce(stmt.excluded.pp_toi, SkaterGameLog.pp_toi),
+                "pp_points": func.coalesce(stmt.excluded.pp_points, SkaterGameLog.pp_points),
             }
         )
         await db.execute(stmt)

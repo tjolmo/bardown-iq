@@ -23,6 +23,9 @@ from .crud.skater_game_logs import upsert_scraped_game_logs
 from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
 from .crud.game_odds import upsert_game_odds, get_games_for_odds_matching
 from external.espn.game_odds import fetch_game_odds
+from .crud.player_prop_odds import upsert_player_prop_odds, get_known_athlete_ids, get_player_match_data
+from external.espn.props import fetch_player_prop_odds
+from external.espn.player_ids import build_player_index
 from app.database import AsyncSessionLocal
 import asyncio
 from external.http import gather_bounded
@@ -295,6 +298,36 @@ async def fetch_recent_game_odds(days: int = 3):
     await fetch_game_odds_for_range(today - datetime.timedelta(days=days), today)
 
 
+async def fetch_player_prop_odds_for_range(start: datetime.date, end: datetime.date, cache_dir: str | None = None) -> int:
+    """Fetches ESPN player props for start..end, maps ESPN athletes to NHL players and upserts player_prop_odds."""
+    def yyyymmdd(d: datetime.date) -> int:
+        return int(d.strftime("%Y%m%d"))
+    async with AsyncSessionLocal() as db:
+        games = await get_games_for_odds_matching(db, yyyymmdd(start - datetime.timedelta(days=1)), yyyymmdd(end + datetime.timedelta(days=1)))
+        # a season of slack so early-season games can lean on last season's team logs
+        players, team_seasons, game_players = await get_player_match_data(db, get_current_season_start_year(start) - 1)
+        known = await get_known_athlete_ids(db)
+        index = build_player_index(players, team_seasons, game_players)
+        # blocking threaded HTTP, so keep it off the event loop
+        rows, report = await asyncio.to_thread(fetch_player_prop_odds, start, end, games, index, known, cache_dir)
+        await upsert_player_prop_odds(db, rows)
+    stats = report["stats"]
+    print(f"Player props {start}..{end}: {stats['events_with_props']}/{report['events']} events with props, "
+          f"upserted {len(rows)} markets; athletes matched {report['athletes_matched']}/{report['athletes']}; "
+          f"markets dropped: {stats['markets_unmatched_player']} unmatched player, {stats['markets_unmatched_game']} unmatched game; "
+          f"{report['network_fetches']} network fetches")
+    if report["unmatched"]:
+        sample = sorted(report["unmatched"].items())[:25]
+        print(f"Unmatched ESPN athletes ({len(report['unmatched'])}), sample: {sample}")
+    return len(rows)
+
+async def fetch_recent_player_prop_odds(days: int = 2):
+    """Prices for the last few days' finished games (frozen at puck drop) plus today's and tomorrow's games.
+    Player props only show up on game day, so today's pre-game prices need a daytime run to be captured."""
+    today = datetime.date.today()
+    await fetch_player_prop_odds_for_range(today - datetime.timedelta(days=days), today + datetime.timedelta(days=1))
+
+
 async def run_step(name: str, step):
     """Runs one pipeline step; a failure is logged and the pipeline moves on to the next step."""
     try:
@@ -303,6 +336,12 @@ async def run_step(name: str, step):
         print(f"Pipeline step '{name}' failed: {e!r}")
         return False
     return True
+
+async def pregame_odds_pipeline():
+    """Game lines and player props for today's games. ESPN posts player props only on game day, so the
+    3am nightly run misses pre-game prices; this runs in the late afternoon (North American time)."""
+    await run_step("game odds", fetch_recent_game_odds)
+    await run_step("player prop odds", fetch_recent_player_prop_odds)
 
 async def nightly_pipeline():
     """Runs the nightly jobs in dependency order: schedules and rosters first (new games and players),
@@ -315,6 +354,7 @@ async def nightly_pipeline():
         # models trained on a partial log load would be wrong, so keep yesterday's models this run
         print("Skipping training: player log scrape failed")
     await run_step("game odds", fetch_recent_game_odds)
+    await run_step("player prop odds", fetch_recent_player_prop_odds)
     await run_step("props", fetch_current_player_props)
     if logs_ok:
         await run_step("training", train_models)

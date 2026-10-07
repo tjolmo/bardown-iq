@@ -291,14 +291,58 @@ TEAM_FEATURE_COLUMNS = ["elo_diff", "diff_xg_pct_ewm", "diff_xg_pct_season", "di
 CONTEXT_TEAM_COLUMNS = ["team_xgf_ewm", "team_xga_ewm", "team_gf_ewm", "team_ga_ewm",
                         "team_saf_ewm", "team_saa_ewm", "team_xg_pct_season", "team_gsax_season"]
 
+# optional per-(game_id, team) columns joined onto team_feats when available (market odds, projected starter)
+OPTIONAL_TEAM_COLUMNS = ["team_implied_goals", "team_starter_gsax60"]
+
 def attach_team_context(players: pd.DataFrame, team_feats: pd.DataFrame) -> pd.DataFrame:
     """Joins the player's own team (own_*) and the opponent (opp_*) pre-game team strength onto player rows."""
-    tf = team_feats[["game_id", "team"] + CONTEXT_TEAM_COLUMNS]
-    own = tf.rename(columns={c: "own_" + c.removeprefix("team_") for c in CONTEXT_TEAM_COLUMNS})
-    opp = tf.rename(columns={c: "opp_" + c.removeprefix("team_") for c in CONTEXT_TEAM_COLUMNS})
+    cols = CONTEXT_TEAM_COLUMNS + [c for c in OPTIONAL_TEAM_COLUMNS if c in team_feats]
+    tf = team_feats[["game_id", "team"] + cols]
+    own = tf.rename(columns={c: "own_" + c.removeprefix("team_") for c in cols})
+    opp = tf.rename(columns={c: "opp_" + c.removeprefix("team_") for c in cols})
     out = players.merge(own, on=["game_id", "team"], how="left")
     out = out.merge(opp.rename(columns={"team": "opponent"}), on=["game_id", "opponent"], how="left")
     return out
+
+# market-implied goals for and against, and the opposing projected starter's quality
+MARKET_CONTEXT = ["own_implied_goals", "opp_implied_goals", "opp_starter_gsax60"]
+
+def add_player_context(team_feats: pd.DataFrame, implied: pd.DataFrame, starters: pd.DataFrame | None) -> pd.DataFrame:
+    """Adds market-implied goals and the projected starter's quality to team_feats for the player models
+    (missing when a game has no odds or a team no goalie history; XGBoost handles the gaps)."""
+    tf = team_feats.merge(implied, on=["game_id", "team"], how="left")
+    if starters is not None:
+        tf = tf.merge(starters.rename(columns={"starter_gsax60": "team_starter_gsax60"}), on=["game_id", "team"], how="left")
+    return tf
+
+def implied_team_goals(games: pd.DataFrame, odds: pd.DataFrame, ot_home_share: float = 0.5) -> pd.DataFrame:
+    """Each team's expected goals implied by the betting market. Finds Poisson scoring rates for home and away
+    that sum to the game total and reproduce the vig-free home win probability (overtime/shootout split
+    `ot_home_share`). Returns one row per (game_id, team) with team_implied_goals."""
+    from scipy.stats import poisson
+    df = games[["id", "home_team_tri_code", "away_team_tri_code"]].rename(columns={"id": "game_id"}).merge(
+        odds[["game_id", "home_prob_novig", "total_line"]].dropna(), on="game_id")
+    if df.empty:
+        return pd.DataFrame(columns=["game_id", "team", "team_implied_goals"])
+    total, target = df["total_line"].to_numpy(float), df["home_prob_novig"].to_numpy(float)
+    goals = np.arange(16)
+    def p_home(share):
+        lh, la = total * share, total * (1 - share)
+        ph = poisson.pmf(goals[None, :], lh[:, None])
+        pa = poisson.pmf(goals[None, :], la[:, None])
+        joint = ph[:, :, None] * pa[:, None, :]
+        win = np.tril(np.ones((16, 16)), -1)[None]          # home goals > away goals
+        tie = np.eye(16)[None]
+        return (joint * win).sum((1, 2)) + ot_home_share * (joint * tie).sum((1, 2))
+    lo, hi = np.full(len(df), 0.2), np.full(len(df), 0.8)
+    for _ in range(40):                                     # bisection on the home share of the total
+        mid = (lo + hi) / 2
+        above = p_home(mid) > target
+        hi, lo = np.where(above, mid, hi), np.where(above, lo, mid)
+    share = (lo + hi) / 2
+    home = pd.DataFrame({"game_id": df["game_id"], "team": df["home_team_tri_code"], "team_implied_goals": total * share})
+    away = pd.DataFrame({"game_id": df["game_id"], "team": df["away_team_tri_code"], "team_implied_goals": total * (1 - share)})
+    return pd.concat([home, away], ignore_index=True)
 
 OWN_CONTEXT = ["own_" + c.removeprefix("team_") for c in CONTEXT_TEAM_COLUMNS]
 OPP_CONTEXT = ["opp_" + c.removeprefix("team_") for c in CONTEXT_TEAM_COLUMNS]
@@ -365,6 +409,7 @@ GOALIE_STATS = ["goals_against", "x_goals_against", "sog", "x_sog", "toi", "gsax
 def goalie_features(goalies: pd.DataFrame, team_feats: pd.DataFrame) -> pd.DataFrame:
     df = goalies.copy()
     df["gsax"] = df["x_goals_against"] - df["goals_against"]
+    df["saves"] = df["sog"] - df["goals_against"]
     df["save_pct"] = np.where(df["sog"] > 0, 1 - df["goals_against"] / df["sog"].where(df["sog"] > 0), np.nan)
     df["date"] = _date(df["game_date"])
     df = df.sort_values(["player_id", "date", "game_id"]).reset_index(drop=True)

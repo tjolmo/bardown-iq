@@ -7,7 +7,7 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 from . import features as F
 from .config import SKATER_BUNDLE, GOALIE_BUNDLE, TEAM_BUNDLE, SKATER_TARGETS, GOALIE_TARGETS, GOALIE_TREND_TARGETS
-from .data import load_skater_logs, load_goalie_logs, load_team_stats, load_games, load_current_rosters
+from .data import load_skater_logs, load_goalie_logs, load_team_stats, load_games, load_current_rosters, load_game_odds
 
 _bundles: dict = {}
 
@@ -59,14 +59,17 @@ def _live_roster_ratings(team_games: pd.DataFrame, skaters: pd.DataFrame, roster
     return F.roster_ratings(lineups, ratings)
 
 def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.DataFrame, skaters: pd.DataFrame,
-                   rosters: pd.DataFrame, team_mtime) -> dict:
+                   rosters: pd.DataFrame, odds: pd.DataFrame, team_mtime) -> dict:
     placeholders = _placeholder_games(games, set(team_stats["game_id"]))
     team_games = F.build_team_games(pd.concat([team_stats, _placeholder_team_rows(placeholders)], ignore_index=True))
     team_feats = F.team_history_features(team_games)
+    starters = F.starter_features(team_games, goalies) if not goalies.empty else None
+    # player models also see the market's implied goals (stored nightly, incl. today's pre-game prices)
+    player_ctx = F.add_player_context(team_feats, F.implied_team_goals(games, odds), starters)
     win_probs: dict[int, float] = {}
     if team_mtime is not None:
         bundle = load_bundle(TEAM_BUNDLE)
-        side_feats = [F.starter_features(team_games, goalies)] if not goalies.empty else []
+        side_feats = [starters] if starters is not None else []
         current = team_games[team_games["season"] == team_games["season"].max()]
         side_feats.append(_live_roster_ratings(current, skaters, rosters, bundle["skater_ratings"]))
         frame = F.build_team_model_frame(games, team_feats, side_feats)
@@ -74,7 +77,7 @@ def _build_context(team_stats: pd.DataFrame, games: pd.DataFrame, goalies: pd.Da
         if not frame.empty:
             p = bundle["model"].predict_proba(frame[bundle["features"]])[:, 1]
             win_probs = dict(zip(frame["game_id"].astype(int), p.astype(float)))
-    return {"team_feats": team_feats, "win_probs": win_probs, "placeholders": placeholders}
+    return {"team_feats": player_ctx, "win_probs": win_probs, "placeholders": placeholders}
 
 async def _team_context(db: AsyncSession) -> dict:
     """Pre-game team features and win probabilities for every scheduled game, rebuilt at most every 10 minutes."""
@@ -90,8 +93,9 @@ async def _team_context(db: AsyncSession) -> dict:
         # lineups only need this season's games; player ratings come from the saved team model
         skaters = await load_skater_logs(db, seasons=[int(games["season"].max())])
         rosters = await load_current_rosters(db)
+        odds = await load_game_odds(db)
         # the Elo loop, starter guesses and groupbys take a moment, so keep them off the event loop
-        built = await asyncio.to_thread(_build_context, team_stats, games, goalies, skaters, rosters, team_mtime)
+        built = await asyncio.to_thread(_build_context, team_stats, games, goalies, skaters, rosters, odds, team_mtime)
         _context.update(built, built_at=time.monotonic(), team_mtime=team_mtime)
         return _context
 
@@ -137,9 +141,11 @@ async def predict_skater(db: AsyncSession, player_id: int, team: str, game) -> d
     ctx = await _team_context(db)
     upcoming = _upcoming_player_rows(logs, game, team, ctx["placeholders"])
     df, _ = F.skater_features(pd.concat([logs, upcoming], ignore_index=True), ctx["team_feats"],
-                              league_rates=bundle["league_rates"])
+                              league_rates=bundle["league_rates"], extra_stats=bundle.get("extra_stats", ()))
     X = df.loc[df["game_id"] == game.id, bundle["features"]].tail(1).astype(np.float32)
-    expected = {t: float(bundle["models"][t].predict(X)[0]) for t in SKATER_TARGETS}
+    trends = bundle.get("trends", {})
+    expected = {t: float(m.predict(X, base_margin=np.log([trends[t]]) if t in trends else None)[0])
+                for t, m in bundle["models"].items()}
     return {**expected, **{f"prob_{t}": float(1.0 - np.exp(-mu)) for t, mu in expected.items()}}
 
 async def predict_goalie(db: AsyncSession, player_id: int, team: str, game) -> dict | None:
@@ -153,7 +159,24 @@ async def predict_goalie(db: AsyncSession, player_id: int, team: str, game) -> d
     df = F.goalie_features(pd.concat([logs, upcoming], ignore_index=True), ctx["team_feats"])
     X = df.loc[df["game_id"] == game.id, bundle["features"]].tail(1).astype(np.float32)
     out = {}
-    for t in GOALIE_TARGETS:
-        margin = np.log([bundle["trends"][t]]) if t in GOALIE_TREND_TARGETS else None
+    for t in bundle["models"]:
+        margin = np.log([bundle["trends"][t]]) if t in bundle["trends"] else None
         out[t] = float(bundle["models"][t].predict(X, base_margin=margin)[0])
     return out
+
+# Odds API prop markets -> the model stat that settles them
+PROP_STATS = {"player_goals": "goals", "player_assists": "assists", "player_points": "points",
+              "player_shots_on_goal": "shots_on_goal", "player_total_saves": "saves"}
+
+def prop_probability(expected: dict, prop_type: str, line: float, side: str) -> float | None:
+    """Chance the over/under side of a prop wins under the model's Poisson rate for that stat
+    (half-point lines can't push; a whole-number line's push is counted as not winning)."""
+    from scipy.stats import poisson
+    stat = PROP_STATS.get(prop_type)
+    if stat is None or stat not in expected:
+        return None
+    lam = expected[stat]
+    p_over = float(1 - poisson.cdf(np.floor(line), lam))
+    if side.lower() == "over":
+        return p_over
+    return float(poisson.cdf(np.ceil(line) - 1, lam))

@@ -131,6 +131,7 @@ class PlayerPredictionOut(BaseModel):
     prob_goal: float | None = None
     prob_assist: float | None = None
     prob_point: float | None = None
+    shots_on_goal: float | None = None
 
     class Config:
         from_attributes = True
@@ -152,3 +153,6 @@ class PlayerPropOut(BaseModel):
     over_under: str
     odds: float
     line: float
+    # the model's chance this side wins, and its expected return per unit at these odds (None if no model yet)
+    model_prob: float | None = None
+    edge: float | None = None

@@ -67,6 +67,18 @@ def _normalize_tricodes(df: pd.DataFrame) -> pd.DataFrame:
                     df.loc[(df[col] == code) & (df["season"] <= last_season), col] = old_code
     return df
 
+def _join_power_play(all_rows: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame:
+    """Adds pp_icetime / pp_I_F_points from the situation == "5on4" rows, per (playerId, gameId).
+    Skaters with no 5on4 row for a game get 0 (they had no power-play time)."""
+    pp = (
+        df.loc[df["situation"] == "5on4", ["playerId", "gameId", "icetime", "I_F_points"]]
+        .drop_duplicates(["playerId", "gameId"])
+        .rename(columns={"icetime": "pp_icetime", "I_F_points": "pp_I_F_points"})
+    )
+    merged = all_rows.merge(pp, on=["playerId", "gameId"], how="left")
+    merged[["pp_icetime", "pp_I_F_points"]] = merged[["pp_icetime", "pp_I_F_points"]].fillna(0)
+    return merged
+
 def scrape_skater_game_data(player_id: int, start_date: int|None = None) -> list[SkaterGameLogResponse] | None:
     """REMOVE LATER"""
     """Scrapes game log data for a skater from Moneypuck, cleans, returns list of SkaterGameLogResponse."""
@@ -148,7 +160,8 @@ def scrape_all_skater_game_logs(season: int) -> list[SkaterGameLogResponse] | No
         'playerTeam', 'opposingTeam', 'gameDate', 'situation',
         'I_F_goals', 'I_F_primaryAssists', 'I_F_secondaryAssists', 'I_F_points',
         'I_F_xGoals', 'icetime', 'I_F_highDangerShots', 
-        'I_F_shotAttempts', 'onIce_xGoalsPercentage', 'gameScore'
+        'I_F_shotAttempts', 'onIce_xGoalsPercentage', 'gameScore',
+        'I_F_shotsOnGoal',
     ]
     # download the zip file and unpack the csv
     try:
@@ -156,7 +169,7 @@ def scrape_all_skater_game_logs(season: int) -> list[SkaterGameLogResponse] | No
         with zipfile.ZipFile(csv_data) as z:
             with z.open(_season_csv_member(z, season)) as f:
                 df = pd.read_csv(f, usecols=cols)
-                filtered = df.query('situation == "all"').copy()
+                filtered = _join_power_play(df.query('situation == "all"').copy(), df)
                 filtered = _normalize_tricodes(filtered)
             return _validate_rows(SkaterGameLogResponse, filtered.to_dict("records"), f"skater {season}")
     except Exception as e:
