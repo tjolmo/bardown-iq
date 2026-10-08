@@ -1,8 +1,6 @@
-import type { FC } from "react";
+import { useState, type FC } from "react";
 import type { PlayerPropData } from "../../types/player";
-
-const formatOdds = (odds: number): string =>
-    odds > 0 ? `+${odds}` : `${odds}`;
+import { formatBook, formatOdds } from "../../utils/books";
 
 const formatPropType = (prop_type: string): string => {
     const map: Record<string, string> = {
@@ -22,7 +20,9 @@ const formatPropType = (prop_type: string): string => {
 const formatEdge = (edge: number): string =>
     `${edge > 0 ? "+" : ""}${(edge * 100).toFixed(1)}%`;
 
-export const PlayerPropCard: FC<PlayerPropData> = ({ over_under, line, odds, prop_type, model_prob, edge, source, book }) => {
+export const PlayerPropCard: FC<PlayerPropData> = ({ over_under, line, odds, prop_type, model_prob, edge, source, book, other_books }) => {
+    const [showBooks, setShowBooks] = useState(false);
+    const otherBooks = other_books ?? [];
     const side = over_under.toUpperCase();
     const isOver = side !== "UNDER";   // "Yes" (anytime goal) reads like an over
 
@@ -41,9 +41,13 @@ export const PlayerPropCard: FC<PlayerPropData> = ({ over_under, line, odds, pro
                 <span className="text-xs font-semibold tracking-widest uppercase text-slate-400">
                     {formatPropType(prop_type)}
                 </span>
-                {source === "espn" && (
+                {source === "espn" ? (
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400" title="Price from ESPN's feed">
                         {book ?? "ESPN"}
+                    </span>
+                ) : book && (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400" title="Best price across books at the consensus line">
+                        {formatBook(book)}
                     </span>
                 )}
             </div>
@@ -73,6 +77,35 @@ export const PlayerPropCard: FC<PlayerPropData> = ({ over_under, line, odds, pro
                     <span className="text-slate-500">Model {(model_prob * 100).toFixed(0)}%</span>
                     {edge !== null && (
                         <span className={`font-semibold ${edgeClasses}`}>Edge {formatEdge(edge)}</span>
+                    )}
+                </div>
+            )}
+
+            {otherBooks.length > 0 && (
+                <div className="mt-3 border-t border-slate-100 pt-2">
+                    <button
+                        type="button"
+                        onClick={() => setShowBooks((v) => !v)}
+                        aria-expanded={showBooks}
+                        className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                    >
+                        {showBooks ? "Hide books" : `+${otherBooks.length} book${otherBooks.length === 1 ? "" : "s"}`}
+                    </button>
+                    {showBooks && (
+                        <ul className="mt-2 space-y-1 text-xs tabular-nums">
+                            {otherBooks.map((b) => (
+                                <li key={`${b.book}-${b.line}`} className="flex items-center justify-between gap-2">
+                                    <span className={b.consensus ? "text-slate-600" : "text-slate-400"}
+                                          title={b.consensus ? undefined : "Not part of the consensus price"}>
+                                        {formatBook(b.book)}
+                                        {b.line !== line && side !== "YES" && (
+                                            <span className="text-slate-400"> · {b.line}</span>
+                                        )}
+                                    </span>
+                                    <span className="font-semibold text-slate-700">{formatOdds(b.odds)}</span>
+                                </li>
+                            ))}
+                        </ul>
                     )}
                 </div>
             )}

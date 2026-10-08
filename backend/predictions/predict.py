@@ -278,7 +278,7 @@ def goalie_start_info(picks: pd.DataFrame | None, game_id: int, team: str, playe
         return {"starting": None, "starter_status": None}
     return {"starting": int(pick["player_id"]) == int(player_id), "starter_status": str(pick["status"])}
 
-# Odds API prop markets -> the model stat that settles them
+# app prop market keys (Odds API style, also what PropLine maps to) -> the model stat that settles them
 PROP_STATS = {"player_goals": "goals", "player_assists": "assists", "player_points": "points",
               "player_shots_on_goal": "shots_on_goal", "player_total_saves": "saves",
               "player_blocked_shots": "blocked_shots", "player_hits": "hits", "player_goal_scorer_anytime": "goals"}

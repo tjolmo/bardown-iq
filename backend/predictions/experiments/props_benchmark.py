@@ -11,7 +11,7 @@ that best recovers the true probabilities, and `--vig` (default: the overall bes
 
 Sources:
 - default: ESPN history in `player_prop_odds` (one book per era).
-- `--quotes`: multi-book Odds API quotes in `odds_api_prop_quotes` (collected going forward). The market is the
+- `--quotes`: multi-book quotes in `prop_quotes` (PropLine; the Odds API before Oct 2026). The market is the
   consensus line (most books; lower line on a tie), its fair P(over) the mean of each book's vig-free P(over) at
   that line, and bets are priced at the best available price at that line.
 
@@ -29,7 +29,7 @@ import pandas as pd
 from scipy.stats import poisson, nbinom
 from sqlalchemy import select
 from app.database import AsyncSessionLocal
-from app.models import PlayerPropOdds, Games, OddsApiPropQuote
+from app.models import PlayerPropOdds, Games, PropQuote
 from predictions.vig import METHODS, devig_two_way, implied_prob, american_to_decimal as decimal
 
 # prop_type slug -> (model target column, which predictions file, fixed line for one-sided markets or None)
@@ -38,8 +38,8 @@ PROP_TARGETS = {"goals": ("goals", "skater", None), "assists": ("assists", "skat
                 "hits": ("hits", "skater", None), "blocked_shots": ("blocked_shots", "skater", None),
                 "pp_points": ("pp_points", "skater", None), "anytime_goal": ("goals", "skater", 0.5),
                 "saves": ("saves", "goalie", None), "goals_against": ("goals_against", "goalie", None)}
-# Odds API market key -> prop_type slug above
-ODDS_API_PROP_TYPES = {"player_points": "points", "player_assists": "assists", "player_goals": "goals",
+# prop_quotes market key (Odds API style) -> prop_type slug above
+QUOTE_PROP_TYPES = {"player_points": "points", "player_assists": "assists", "player_goals": "goals",
                        "player_shots_on_goal": "shots_on_goal", "player_blocked_shots": "blocked_shots",
                        "player_power_play_points": "pp_points", "player_total_saves": "saves",
                        "player_goal_scorer_anytime": "anytime_goal"}
@@ -75,10 +75,10 @@ async def _load_props():
 
 async def _load_quotes():
     async with AsyncSessionLocal() as db:
-        stmt = (select(OddsApiPropQuote, Games.season, Games.start_time)
-                .join(Games, Games.id == OddsApiPropQuote.game_id))
+        stmt = (select(PropQuote, Games.season, Games.start_time)
+                .join(Games, Games.id == PropQuote.game_id))
         rows = (await db.execute(stmt)).all()
-    cols = [c.name for c in OddsApiPropQuote.__table__.columns]
+    cols = [c.name for c in PropQuote.__table__.columns]
     df = pd.DataFrame([{**{c: getattr(q, c) for c in cols}, "season": s, "start_time": t} for q, s, t in rows],
                       columns=cols + ["season", "start_time"])
     df["season"] = df["season"] // 10000
@@ -91,9 +91,9 @@ def consensus_markets(quotes: pd.DataFrame, method: str) -> pd.DataFrame:
     out_cols = ["game_id", "player_id", "prop_type", "season", "line", "over_price", "under_price",
                 "market_p", "n_books", "open_line", "open_over_price", "open_under_price", "sides_inferred"]
     q = quotes.copy()
-    if "start_time" in q:   # pre-game quotes only (the Odds API events endpoint only lists upcoming games anyway)
+    if "start_time" in q:   # pre-game quotes only (both feeds only list upcoming games anyway)
         q = q[pd.to_datetime(q["last_seen"], utc=True) <= pd.to_datetime(q["start_time"], utc=True)]
-    q["prop_type"] = q["prop_type"].map(lambda k: ODDS_API_PROP_TYPES.get(k, k))
+    q["prop_type"] = q["prop_type"].map(lambda k: QUOTE_PROP_TYPES.get(k, k))
     q["side"] = np.where(q["over_under"].str.lower().isin(["over", "yes"]), "over",
                          np.where(q["over_under"].str.lower() == "under", "under", None))
     q = q[q["side"].notna()]
@@ -283,7 +283,7 @@ def main():
                     help="one or more skater prediction pickles; the first holding a target's column is used")
     ap.add_argument("--goalie-preds", nargs="+", default=["/scratch/props_preds_goalie.pkl"])
     ap.add_argument("--vig", choices=METHODS, default=DEFAULT_VIG, help="vig removal for the market probability")
-    ap.add_argument("--quotes", action="store_true", help="multi-book Odds API quotes instead of ESPN history")
+    ap.add_argument("--quotes", action="store_true", help="multi-book prop_quotes (PropLine) instead of ESPN history")
     ap.add_argument("--alpha", nargs="*", default=[], help="stat=alpha negative-binomial dispersion, e.g. shots_on_goal=0.06")
     ap.add_argument("--fitted-alpha", action="store_true",
                     help="price with the out-of-sample alphas saved by props_models (overrides --alpha)")
@@ -292,10 +292,10 @@ def main():
     if args.quotes:
         quotes = asyncio.run(_load_quotes())
         props = consensus_markets(quotes, args.vig)
-        print(f"Odds API quotes: {len(quotes)} rows -> {len(props)} consensus markets")
+        print(f"prop_quotes: {len(quotes)} rows -> {len(props)} consensus markets")
         if props.empty:
             with open(args.out, "w") as f:
-                json.dump({"source": "odds_api_prop_quotes", "quotes": len(quotes), "markets": 0}, f)
+                json.dump({"source": "prop_quotes", "quotes": len(quotes), "markets": 0}, f)
             return
     else:
         props = asyncio.run(_load_props())
@@ -305,7 +305,7 @@ def main():
              "goalie": [pd.read_pickle(p) for p in args.goalie_preds]}
     report = run(props, preds, {"skater": args.variant, "goalie": args.goalie_variant}, args.vig, alphas, args.only,
                  args.fitted_alpha)
-    report["_source"] = "odds_api_prop_quotes" if args.quotes else "player_prop_odds"
+    report["_source"] = "prop_quotes" if args.quotes else "player_prop_odds"
     with open(args.out, "w") as f:
         json.dump(report, f, indent=1, default=float)
 

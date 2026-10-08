@@ -63,6 +63,13 @@ class TeamGamePredictionOut(BaseModel):
     away: TeamSidePrediction
 
 class TeamMoneylineOut(BaseModel):
-    """Output model for game-level moneyline predictions (both teams)"""
+    """Output model for a game's moneyline (both teams): the median price of PropLine's consensus books, with the
+    best price per side among those books. NHL's partner feed (one book, no best price) is the fallback."""
     home: int
     away: int
+    best_home: int | None = None
+    best_home_book: str | None = None
+    best_away: int | None = None
+    best_away_book: str | None = None
+    n_books: int | None = None
+    source: str = "propline"

@@ -1,3 +1,4 @@
+import datetime
 from app.schedules import train_models
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +9,7 @@ from . import refresh
 from .database import AsyncSessionLocal
 from .schedules import (add_current_teams_to_db, add_old_teams_to_db, fetch_current_rosters_for_all_teams, 
                         fetch_current_schedules_for_all_teams, fetch_all_season_schedules_for_all_teams, scrape_all_player_logs, scrape_team_stats,
-                        fetch_current_scores, fetch_current_player_props, nightly_pipeline, pregame_odds_pipeline,
+                        fetch_current_scores, fetch_current_game_lines, nightly_pipeline, pregame_odds_pipeline,
                         morning_odds_pipeline)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -38,10 +39,14 @@ async def lifespan(app: FastAPI):
     # run through the shared lock so the nightly run never overlaps a startup or manual refresh
     scheduler.add_job(refresh.run_exclusive, args=["nightly", nightly_pipeline], trigger="cron", hour=3, max_instances=1, coalesce=True, misfire_grace_time=3600)
     scheduler.add_job(fetch_current_scores, trigger="interval", minutes=10)
+    # the site's live moneylines: one bulk PropLine request (48 of the free tier's 1,000 a day)
+    # (first run at startup, not 30 minutes in)
+    scheduler.add_job(fetch_current_game_lines, trigger="interval", minutes=30, max_instances=1, coalesce=True,
+                      next_run_time=datetime.datetime.now(datetime.timezone.utc))
     # 21:00 UTC is mid/late afternoon in North America: player props are up, most games haven't started
     # runs twice so a 21:00 run skipped by a busy lock still happens; the prediction log skips games already logged
     scheduler.add_job(refresh.run_exclusive, args=["pregame odds", pregame_odds_pipeline], trigger="cron", hour="21,22", max_instances=1, coalesce=True, misfire_grace_time=3600)
-    # 15:00 UTC (late morning ET): an earlier point on the odds price path, ESPN only
+    # 15:00 UTC (late morning ET): an earlier point on the odds price path (ESPN, and PropLine's props)
     scheduler.add_job(refresh.run_exclusive, args=["morning odds", morning_odds_pipeline], trigger="cron", hour=15, max_instances=1, coalesce=True, misfire_grace_time=3600)
     scheduler.start()
     refresh.start_in_background("startup", run_startup_refresh)
@@ -63,6 +68,9 @@ origins = [
     "http://127.0.0.1:5173",
     "http://localhost:5174",
     "http://127.0.0.1:5174",
+    # docker-compose.experiments.yml's frontend
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
 ]
 
 app.add_middleware(

@@ -210,6 +210,7 @@ class Props(Base):
     over_under: Mapped[str] = mapped_column(primary_key=True)
     odds: Mapped[float] = mapped_column(nullable=False)
     line: Mapped[float] = mapped_column(nullable=False)
+    book: Mapped[str | None] = mapped_column(nullable=True)    # the book with the best price (PropLine key)
 
 class TeamGameStats(Base):
     """One team's totals for one game from MoneyPuck, split by situation (all / 5v5 / power play / penalty kill)."""
@@ -284,20 +285,39 @@ class PlayerPropOdds(Base):
     espn_last_updated: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_updated: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
 
-class OddsApiPropQuote(Base):
-    """Every player prop quote the Odds API returns: one bookmaker, one side, one line (fetched going forward).
+class PropQuote(Base):
+    """Every player prop quote a multi-book feed returns: one bookmaker, one side, one line (fetched going forward).
+    PropLine since Oct 2026; earlier rows came from the Odds API (`provider`).
 
     `props` keeps only the consensus-line best price; this table keeps each book's price so line shopping and
     consensus fair probabilities can be backtested later. Each run overwrites `odds`/`last_seen`/`book_last_update`;
     `first_odds`/`first_seen` keep the price from the first fetch that saw this quote (an opening-ish price)."""
-    __tablename__ = "odds_api_prop_quotes"
+    __tablename__ = "prop_quotes"
     game_id: Mapped[int] = mapped_column(primary_key=True)
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), primary_key=True, index=True)
-    prop_type: Mapped[str] = mapped_column(primary_key=True)      # Odds API market key, e.g. player_points
+    prop_type: Mapped[str] = mapped_column(primary_key=True)      # app market key (Odds API style), e.g. player_points
     over_under: Mapped[str] = mapped_column(primary_key=True)     # "Over" / "Under" (or "Yes" for one-sided markets)
     line: Mapped[float] = mapped_column(primary_key=True)
-    bookmaker: Mapped[str] = mapped_column(primary_key=True)      # Odds API bookmaker key, e.g. draftkings
+    bookmaker: Mapped[str] = mapped_column(primary_key=True)      # bookmaker key, e.g. draftkings
     odds: Mapped[float] = mapped_column(nullable=False)           # American odds at the latest fetch
+    first_odds: Mapped[float] = mapped_column(nullable=False)
+    first_seen: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    book_last_update: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    event_id: Mapped[str | None] = mapped_column(nullable=True)
+    provider: Mapped[str] = mapped_column(nullable=False, default="propline", server_default="odds_api")
+
+class GameLineQuote(Base):
+    """Every book's main game line from PropLine: moneyline (h2h), puck line (spreads) and total, one side each.
+    Upserted like prop_quotes (latest price plus the first one seen). The site's live moneyline is the median of the
+    consensus books here; game_odds (ESPN) stays the closing-line history the models and backtests use."""
+    __tablename__ = "game_line_quotes"
+    game_id: Mapped[int] = mapped_column(primary_key=True)
+    market: Mapped[str] = mapped_column(primary_key=True)         # "h2h" / "spreads" / "totals"
+    side: Mapped[str] = mapped_column(primary_key=True)           # "home" / "away" / "over" / "under"
+    line: Mapped[float] = mapped_column(primary_key=True)         # spread for the side, the total, 0 for h2h
+    bookmaker: Mapped[str] = mapped_column(primary_key=True)
+    odds: Mapped[float] = mapped_column(nullable=False)
     first_odds: Mapped[float] = mapped_column(nullable=False)
     first_seen: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -390,8 +410,8 @@ class PlayerPredictionLog(Base):
     market_under_price: Mapped[float | None] = mapped_column(nullable=True)
     market_over_prob_novig: Mapped[float | None] = mapped_column(nullable=True)
     market_n_books: Mapped[int | None] = mapped_column(nullable=True)
-    # "espn" (player_prop_snapshots) or "odds_api" (odds_api_prop_quotes consensus, the fallback when ESPN has no
-    # two-sided line); NULL when neither had one. The scorer reads the closing line from the same feed.
+    # "espn" (player_prop_snapshots), or "propline" / "odds_api" (prop_quotes consensus of that provider's rows, the
+    # fallback when ESPN has no two-sided line); NULL when neither had one. The scorer reads the closing line from the same feed.
     market_source: Mapped[str | None] = mapped_column(nullable=True)
 
 class PredictionScore(Base):

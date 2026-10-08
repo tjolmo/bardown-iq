@@ -1,0 +1,38 @@
+# This worktree's backend + frontend against the scratch database nhl_experiments, on the main stack's network and
+# postgres_db container (never the real nhl-prediction DB). Ports 8003/5175 so it runs next to the main stack.
+# usage (from this folder, with the main stack's db up):
+#   docker compose -p nhl-exp -f docker-compose.experiments.yml --env-file /Users/trevor/nhl-prediction-capstone/.env up --build
+services:
+  backend:
+    build: ./backend
+    container_name: exp_fastapi_backend
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app"
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8003:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/nhl_experiments
+      PROPLINE_API_KEY: ${PROPLINE_API_KEY}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+    networks:
+      - capstone
+
+  frontend:
+    build: ./vite-frontend
+    container_name: exp_react_frontend
+    command: npm run dev -- --host
+    volumes:
+      - ./vite-frontend:/app
+      - /app/node_modules
+    ports:
+      - "5175:5173"
+    environment:
+      VITE_API_URL: http://localhost:8003
+    depends_on:
+      - backend
+
+networks:
+  capstone:
+    name: nhl-prediction-capstone_default
+    external: true

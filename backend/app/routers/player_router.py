@@ -252,8 +252,8 @@ async def get_top_players(player_type: str, season: int, n: int, db = Depends(ge
 
 @router.get("/props/{player_id}", status_code=200, response_model=list[PlayerPropOut])
 async def get_player_props(player_id: int, db = Depends(get_db)):
-    """Fetches player props for a player's latest priced game, with the model's chance for each side: the Odds API's
-    best prices plus ESPN's markets for what the Odds API doesn't carry (hits, and blocks when no book posts them)."""
+    """Fetches player props for a player's latest priced game, with the model's chance for each side: PropLine's best
+    prices (with every other book's price) plus ESPN's markets for what PropLine doesn't carry (hits above all)."""
     try:
         out = await get_player_prop_board(db, player_id)
         if not out:

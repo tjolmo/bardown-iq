@@ -5,8 +5,8 @@ a frozen model run forward, tracked with closing-line value. This module is that
 
 * `log_predictions` (afternoon pipeline): for every game today that hasn't started, the team win probability and
   every player's expected counts (skater and goalie bundles), with the latest pre-game market snapshot
-  (app.crud.odds_snapshots). A player stat takes ESPN's line when ESPN has a two-sided one, else the Odds API
-  consensus across books (odds_api_prop_quotes), and records which (`market_source`). Insert-only; a
+  (app.crud.odds_snapshots). A player stat takes ESPN's line when ESPN has a two-sided one, else the consensus
+  across PropLine's books (prop_quotes; the Odds API before Oct 2026), and records which (`market_source`). Insert-only; a
   (game, model_version) already logged is skipped.
 * `score_predictions` (nightly pipeline): joins logged rows with results and the closing snapshot and writes
   prediction_scores once per logged row: log loss (team; P(over) for players), Poisson deviance (players),
@@ -37,7 +37,8 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.games import FINISHED_GAME_STATES
-from app.crud.odds_api_prop_quotes import get_quotes_for_games
+from external.propline.books import CONSENSUS_BOOKS
+from app.crud.prop_quotes import get_quotes_for_games
 from app.crud.odds_snapshots import (as_utc, closing_game_snapshots, closing_prop_snapshots, latest_game_snapshots,
                                      latest_prop_snapshots)
 from app.models import (GoalieGameLog, Games, Player, PlayerPredictionLog, PredictionLog, PredictionScore,
@@ -51,8 +52,8 @@ DEVIG_METHOD = "multiplicative"
 CLOSE_WAIT_DAYS = 2
 # player rows whose game has no logs this many days after it was played are marked no_result
 RESULT_WAIT_DAYS = 5
-# model stat -> prop_probability's market key, which is also the Odds API market the fallback line is read from
-# (the Odds API has no NHL hits market); pp_points stays unpriced (5-on-4 only, books settle all PP strengths)
+# model stat -> prop_probability's market key, which is also the prop_quotes market the fallback line is read from
+# (neither PropLine nor the Odds API has an NHL hits market); pp_points stays unpriced (5-on-4 only, books settle all PP strengths)
 PROP_KEYS = {"goals": "player_goals", "assists": "player_assists", "points": "player_points",
              "shots_on_goal": "player_shots_on_goal", "hits": "player_hits", "blocked_shots": "player_blocked_shots",
              "saves": "player_total_saves"}
@@ -131,9 +132,10 @@ def _get(row, key):
     return row[key] if isinstance(row, dict) else getattr(row, key)
 
 
-def odds_api_book_rows(quotes, as_of: datetime.datetime) -> dict[tuple, list[dict]]:
-    """Odds API quotes (odds_api_prop_quotes rows: one book, one side) as they stood at `as_of`, paired into
-    two-sided book rows shaped like prop snapshots, keyed (game_id, player_id, model stat).
+def quote_book_rows(quotes, as_of: datetime.datetime) -> dict[tuple, list[dict]]:
+    """Multi-book quotes (prop_quotes rows: one book, one side) as they stood at `as_of`, paired into two-sided
+    book rows shaped like prop snapshots, keyed (game_id, player_id, model stat). PropLine rows count only from the
+    consensus books (the exchanges and Bovada are stored but kept out); each row carries its `provider`.
 
     A quote row only keeps its first and latest fetch, so per game the price path is rebuilt from the latest fetch
     at or before `as_of`: quotes seen in it (first_seen <= fetch <= last_seen) are live, at their latest price if
@@ -143,6 +145,9 @@ def odds_api_book_rows(quotes, as_of: datetime.datetime) -> dict[tuple, list[dic
     stats = {key: stat for stat, key in PROP_KEYS.items()}
     by_game = defaultdict(list)
     for q in quotes:
+        provider = _provider(q)
+        if provider == "propline" and _get(q, "bookmaker") not in CONSENSUS_BOOKS:
+            continue
         if _get(q, "prop_type") in stats and as_utc(_get(q, "first_seen")) <= as_of:
             by_game[_get(q, "game_id")].append(q)
     out: dict[tuple, dict] = {}
@@ -161,7 +166,7 @@ def odds_api_book_rows(quotes, as_of: datetime.datetime) -> dict[tuple, list[dic
             key = (gid, _get(q, "player_id"), stat, float(_get(q, "line")), _get(q, "bookmaker"))
             row = out.setdefault(key, {"game_id": gid, "player_id": key[1], "prop_type": stat, "line": key[3],
                                        "book": key[4], "over_price": None, "under_price": None,
-                                       "captured_at": captured})
+                                       "captured_at": captured, "provider": _provider(q)})
             row[f"{side}_price"] = price
             row["captured_at"] = max(row["captured_at"], captured)
     grouped: dict[tuple, list[dict]] = defaultdict(list)
@@ -170,16 +175,24 @@ def odds_api_book_rows(quotes, as_of: datetime.datetime) -> dict[tuple, list[dic
     return dict(grouped)
 
 
-def pick_market(espn_rows, odds_api_rows) -> tuple[dict | None, str | None, datetime.datetime | None]:
+def _provider(q) -> str:
+    """Feed of a prop_quotes row: rows stored before the provider column existed came from the Odds API."""
+    provider = q.get("provider") if isinstance(q, dict) else getattr(q, "provider", None)
+    return provider or "odds_api"
+
+
+def pick_market(espn_rows, quote_rows) -> tuple[dict | None, str | None, datetime.datetime | None]:
     """(main market, source, captured_at) for one player and stat: ESPN's line when it has a two-sided one, else
-    the Odds API consensus (most player rows have no ESPN line since DraftKings replaced ESPN BET), else nothing."""
+    the consensus of the multi-book quotes ("propline", or "odds_api" for older games; most player rows have no
+    ESPN line since DraftKings replaced ESPN BET), else nothing."""
     m = main_prop_market(espn_rows) if espn_rows else None
     if m:
         return m, "espn", _get(espn_rows[0], "captured_at")
-    m = main_prop_market(odds_api_rows) if odds_api_rows else None
+    m = main_prop_market(quote_rows) if quote_rows else None
     if m:
-        at_line = [r["captured_at"] for r in odds_api_rows if float(r["line"]) == m["line"]]
-        return m, "odds_api", max(at_line)
+        at_line = [r for r in quote_rows if float(r["line"]) == m["line"]]
+        newest = max(at_line, key=lambda r: r["captured_at"])
+        return m, newest.get("provider", "odds_api"), newest["captured_at"]
     return None, None, None
 
 
@@ -335,8 +348,8 @@ async def log_predictions(db: AsyncSession, game_date: int | None = None, now: d
         return summary
     game_snaps = await latest_game_snapshots(db, [g.id for g in games], now)
     prop_snaps = await latest_prop_snapshots(db, [g.id for g in games], now)
-    # fallback market where ESPN has no line: the Odds API quotes (fetched by the nightly run) as they stood now
-    api_rows = odds_api_book_rows(await get_quotes_for_games(db, [g.id for g in games]), now)
+    # fallback market where ESPN has no line: PropLine's quotes (fetched by the odds pipelines) as they stood now
+    api_rows = quote_book_rows(await get_quotes_for_games(db, [g.id for g in games]), now)
     # rebuild the cached prediction context so just-fetched starters and odds are used
     P._context["built_at"] = 0.0
     # plain copies: a rollback after one game's failure expires ORM objects, and reloading them here would fail
@@ -445,8 +458,12 @@ def market_source(log) -> str | None:
     return log.market_source or "espn"
 
 
-async def odds_api_closing_rows(db: AsyncSession, starts: dict) -> dict[int, list[dict]]:
-    """game_id -> two-sided Odds API book rows as they stood at puck drop (the last fetch before the start)."""
+# market_source values whose line came from prop_quotes (closing rows from quote_closing_rows)
+QUOTE_SOURCES = ("propline", "odds_api")
+
+
+async def quote_closing_rows(db: AsyncSession, starts: dict) -> dict[int, list[dict]]:
+    """game_id -> two-sided multi-book quote rows as they stood at puck drop (the last fetch before the start)."""
     out: dict[int, list[dict]] = defaultdict(list)
     quotes = defaultdict(list)
     for q in await get_quotes_for_games(db, list(starts)):
@@ -454,7 +471,7 @@ async def odds_api_closing_rows(db: AsyncSession, starts: dict) -> dict[int, lis
     for gid, qs in quotes.items():
         if starts.get(gid) is None:
             continue
-        for rows in odds_api_book_rows(qs, as_utc(starts[gid]) - datetime.timedelta(seconds=1)).values():
+        for rows in quote_book_rows(qs, as_utc(starts[gid]) - datetime.timedelta(seconds=1)).values():
             out[gid].extend(rows)
     return dict(out)
 
@@ -509,7 +526,7 @@ async def score_predictions(db: AsyncSession, now: datetime.datetime | None = No
     player_rows = await _unscored(db, PlayerPredictionLog, "player")
     game_ids = list({log.game_id for log, _ in player_rows})
     prop_close = await closing_prop_snapshots(db, game_ids)
-    api_close = await odds_api_closing_rows(db, {game.id: game.start_time for _, game in player_rows})
+    api_close = await quote_closing_rows(db, {game.id: game.start_time for _, game in player_rows})
     actuals: dict[tuple, dict] = {}
     games_with_logs: set[tuple[int, str]] = set()
     if game_ids:
@@ -527,7 +544,7 @@ async def score_predictions(db: AsyncSession, now: datetime.datetime | None = No
                 continue
             s = {"stat": log.stat, "expected": log.expected, "line": log.market_line, "status": "no_result"}
         elif (market_source(log) == "espn" and log.game_id not in prop_close and waited < CLOSE_WAIT_DAYS):
-            # Odds API quotes are only fetched before puck drop, so their close is already final; ESPN's frozen
+            # PropLine / Odds API quotes are only fetched before puck drop, so their close is already final; ESPN's frozen
             # close arrives with the nightly fetch after the game
             summary["player_waiting_close"] += 1
             continue
@@ -539,7 +556,7 @@ async def score_predictions(db: AsyncSession, now: datetime.datetime | None = No
                 value = stats.get(log.stat)
                 # the close from the feed the logged line came from, this player's quotes only (the game's
                 # snapshots hold every player's props)
-                close_rows = api_close if market_source(log) == "odds_api" else prop_close
+                close_rows = api_close if market_source(log) in QUOTE_SOURCES else prop_close
                 mine = [r for r in close_rows.get(log.game_id, []) if _get(r, "player_id") == log.player_id]
                 s = score_player(_columns(log, _PLAYER_LOG_FIELDS), None if value is None else float(value), mine or None)
         db.add(PredictionScore(kind="player", log_id=log.id, run_id=log.run_id, model_version=log.model_version,
@@ -634,7 +651,8 @@ async def model_report(db: AsyncSession, model_version_filter: str | None = None
 
 async def log_coverage(db: AsyncSession, model_version_filter: str | None = None, start: int | None = None,
                        end: int | None = None) -> dict:
-    """How many logged player rows had a market line, per priced stat and per feed (espn / odds_api / none), and how
+    """How many logged player rows had a market line, per priced stat and per feed (espn / propline / odds_api /
+    none), and how
     many logged games had any line from each feed. Counts every logged row (scored or not), so it can be checked
     the morning after the first runs. Each (game, player, stat) counts once: its last run of the latest version."""
     stmt = select(PlayerPredictionLog.game_id, PlayerPredictionLog.game_date, PlayerPredictionLog.player_id,
@@ -660,14 +678,14 @@ async def log_coverage(db: AsyncSession, model_version_filter: str | None = None
         games[r.game_id].add(source)
     def share(counter: Counter, n: int) -> dict:
         return {src: {"n": counter[src], "share": round(counter[src] / n, 4) if n else None}
-                for src in ("espn", "odds_api", "none")}
+                for src in ("espn", "propline", "odds_api", "none")}
     out_stats = {}
     for stat, counter in sorted(stats.items()):
         n = sum(counter.values())
         out_stats[stat] = {"rows": n, **share(counter, n)}
     game_counter = Counter(src for sources in games.values() for src in sources if src != "none")
     return {"rows": len(latest), "games": len(games),
-            "games_with_line": {src: game_counter[src] for src in ("espn", "odds_api")},
+            "games_with_line": {src: game_counter[src] for src in ("espn", "propline", "odds_api")},
             "games_without_any_line": sum(1 for sources in games.values() if sources == {"none"}),
             "stats": out_stats}
 

@@ -1,14 +1,15 @@
 from predictions.train import train_all_models
 from app.crud.props import upsert_player_props
-from app.crud.odds_api_prop_quotes import upsert_odds_api_prop_quotes
+from app.crud.prop_quotes import upsert_prop_quotes
+from app.crud.game_line_quotes import upsert_game_line_quotes
 from app.schemas.player import PlayerPropOut
 from app.crud.players import get_players_on_teams
-from app.player_matching import index_players_by_name, match_player
+from app.player_matching import GOALIE_PROP_TYPES, index_players_by_name, match_player
 from app.crud.teams import get_all_teams
 from app.name_matching import normalize_name
 from app.crud.games import get_all_games_for_date
-from external.odds_api.dedupe import select_best_props
-from external.odds_api.player_props import get_upcoming_games_odds_api, get_player_props
+from external.propline.dedupe import select_best_props
+from external.propline.client import get_upcoming_games, get_event_odds, get_game_lines, parse_player_props, parse_game_lines
 from external.moneypuck.player import scrape_all_goalie_game_logs, scrape_all_skater_game_logs
 from external.moneypuck.teams import scrape_team_game_stats
 from app.crud.team_game_stats import upsert_team_game_stats
@@ -218,42 +219,91 @@ async def fetch_current_scores():
         scores = await get_current_scores(tri_codes)
         await upsert_scraped_games_from_schedule(db, scores)
 
+def match_event_to_game(event, games, tri_codes_by_name):
+    """(game_id, tri codes of the event's teams) for a PropLine event, matched to a game in the DB by team names
+    (ignoring accents/case/punctuation: "Montreal" vs "Montréal") and, when the same matchup is listed twice (a
+    playoff series), the start time closest to the event's. game_id is None when no game matches."""
+    home_tri_code = tri_codes_by_name.get(normalize_name(event.home_team))
+    away_tri_code = tri_codes_by_name.get(normalize_name(event.away_team))
+    tri_codes = [code for code in (home_tri_code, away_tri_code) if code]
+    matches = [g for g in games if g.home_team_tri_code == home_tri_code and g.away_team_tri_code == away_tri_code]
+    if not matches:
+        return None, tri_codes
+    commence = event.commence_time
+    best = min(matches, key=lambda g: abs((as_utc_time(g.start_time) - commence).total_seconds())
+               if g.start_time is not None and commence is not None else 0)
+    return best.id, tri_codes
+
+
+def as_utc_time(t: datetime.datetime) -> datetime.datetime:
+    return t if t.tzinfo else t.replace(tzinfo=datetime.timezone.utc)
+
+
+async def games_around(db, start: datetime.datetime, days: range) -> list:
+    """Games stored under the dates start + each offset in days (games are stored under their local date, which
+    lags UTC in the evening)."""
+    games = []
+    for offset in days:
+        d = start.date() + datetime.timedelta(days=offset)
+        games += await get_all_games_for_date(db, int(d.strftime("%Y%m%d"))) or []
+    return games
+
+
+def match_prop_player(players_by_id, players_by_name, prop):
+    """(player, reason): PropLine's NHL player id when it has one on these teams, else the name."""
+    player = players_by_id.get(prop.nhl_player_id) if prop.nhl_player_id is not None else None
+    if player is not None and (player.position == "G") == (prop.prop_type in GOALIE_PROP_TYPES):
+        return player, None
+    return match_player(players_by_name, prop.first_name, prop.last_name, prop.prop_type)
+
+
+async def store_game_lines(db, game_id: int, lines) -> None:
+    """Every book's game lines for one game; a failure only loses this fetch's lines."""
+    rows = [{"game_id": game_id, "market": l.market, "side": l.side, "line": l.line, "odds": l.odds,
+             "bookmaker": l.bookmaker, "book_last_update": l.book_last_update, "event_id": l.event_id} for l in lines]
+    if not rows:
+        return
+    try:
+        await upsert_game_line_quotes(db, rows)
+    except Exception as e:
+        await db.rollback()
+        print(f"Failed to store game lines for game {game_id}: {e}")
+
+
 async def fetch_current_player_props():
+    """PropLine player props and game lines for the next day's games: one odds request per game (plus one for its
+    market list) returns every book's props and game lines together."""
     start_time = datetime.datetime.now(datetime.timezone.utc)
     end_time = start_time + datetime.timedelta(days=1)
-    int_date = int(start_time.strftime("%Y%m%d"))
     async with AsyncSessionLocal() as db:
-        events = await get_upcoming_games_odds_api(start_time, end_time)
-        all_games_today = await get_all_games_for_date(db, int_date)
-        # match Odds API team names to tri codes ignoring accents/case/punctuation ("Montreal" vs "Montréal")
+        events = await get_upcoming_games(start_time, end_time)
+        all_games = await games_around(db, start_time, range(-1, 2))
         tri_codes_by_name = {normalize_name(team.current_name): team.tri_code for team in await get_all_teams(db)}
-        #match to games in db
         for event in events:
-            home_tri_code = tri_codes_by_name.get(normalize_name(event.home_team))
-            away_tri_code = tri_codes_by_name.get(normalize_name(event.away_team))
-            potential_tri_codes = [code for code in (home_tri_code, away_tri_code) if code]
-
-            if len(potential_tri_codes) == 0:
+            game_id, potential_tri_codes = match_event_to_game(event, all_games, tri_codes_by_name)
+            if not potential_tri_codes:
                 print(f"No team found for event {event.event_id} ({event.away_team} @ {event.home_team})")
                 continue
-
-            game_id = None
-            for game in all_games_today:
-                if game.home_team_tri_code == home_tri_code and game.away_team_tri_code == away_tri_code:
-                    game_id = game.id
-                    break
             if game_id is None:
                 print(f"No game found for event {event.event_id}")
                 continue
 
             try:
-                player_props = await get_player_props(event.event_id)
-                players_by_name = index_players_by_name(await get_players_on_teams(db, potential_tri_codes))
+                results = await get_event_odds(event.event_id)
+                if not results:
+                    continue
+                await store_game_lines(db, game_id, parse_game_lines({**results, "id": event.event_id,
+                                                                      "home_team": event.home_team,
+                                                                      "away_team": event.away_team}))
+                player_props = parse_player_props(results)
+                team_players = await get_players_on_teams(db, potential_tri_codes)
+                players_by_id = {p.id: p for p in team_players}
+                players_by_name = index_players_by_name(team_players)
                 props_to_upsert = []
                 quotes = []
                 unmatched = {}
                 for prop in player_props:
-                    player, reason = match_player(players_by_name, prop.first_name, prop.last_name, prop.prop_type)
+                    player, reason = match_prop_player(players_by_id, players_by_name, prop)
                     if player is None:
                         unmatched[f"{prop.first_name} {prop.last_name}"] = reason
                         continue
@@ -267,7 +317,8 @@ async def fetch_current_player_props():
                         prop_type=prop.prop_type,
                         over_under=prop.over_under,
                         odds=prop.odds,
-                        line=prop.line
+                        line=prop.line,
+                        book=prop.bookmaker,
                     ))
                 if unmatched:
                     print(f"Event {event.event_id}: {len(unmatched)} players not matched: {unmatched}")
@@ -276,7 +327,7 @@ async def fetch_current_player_props():
                     # every book's own quote first: the forward-test log falls back to their consensus when ESPN has
                     # no line, so they must not depend on the props save below (which once failed on every event)
                     try:
-                        await upsert_odds_api_prop_quotes(db, quotes)
+                        await upsert_prop_quotes(db, quotes)
                     except Exception as e:
                         await db.rollback()
                         print(f"Failed to store quotes for event {event.event_id}: {e}")
@@ -287,6 +338,23 @@ async def fetch_current_player_props():
                 # one bad event must not stop props for the remaining games
                 await db.rollback()
                 print(f"Failed to process props for event {event.event_id}: {e}")
+
+
+async def fetch_current_game_lines():
+    """Every book's moneyline, puck line and total for the upcoming games, from one bulk PropLine request (the
+    site's live moneyline). Runs often; props are fetched by the odds pipelines."""
+    events = await get_game_lines()
+    if not events:
+        return
+    start_time = datetime.datetime.now(datetime.timezone.utc)
+    async with AsyncSessionLocal() as db:
+        all_games = await games_around(db, start_time, range(-1, 3))
+        tri_codes_by_name = {normalize_name(team.current_name): team.tri_code for team in await get_all_teams(db)}
+        for event, lines in events:
+            game_id, _ = match_event_to_game(event, all_games, tri_codes_by_name)
+            if game_id is not None:
+                await store_game_lines(db, game_id, lines)
+
 
 async def train_models():
     # features are built from the game logs inside training, so there is no separate feature step
@@ -484,15 +552,18 @@ async def pregame_odds_pipeline():
     await run_step("injury report", fetch_injury_report)
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("player prop odds", fetch_recent_player_prop_odds)
+    # every book's props and game lines from PropLine (the prediction log's fallback when ESPN has no line)
+    await run_step("props", fetch_current_player_props)
     # last: freezes today's predictions next to the market snapshot just fetched (forward test)
     await run_step("prediction log", log_todays_predictions)
 
 async def morning_odds_pipeline():
     """A late-morning (ET) price snapshot, so the price path has an early point between the open and the
-    afternoon log, and an injury report snapshot. Only ESPN (no metered Odds API calls)."""
+    afternoon log, and an injury report snapshot. ESPN, plus PropLine's props (about 30 of its 1,000 daily requests)."""
     await run_step("injury report", fetch_injury_report)
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("player prop odds", fetch_recent_player_prop_odds)
+    await run_step("props", fetch_current_player_props)
 
 async def log_todays_predictions():
     from predictions.prediction_log import log_predictions

@@ -85,7 +85,18 @@ export interface PlayerPropData {
     // the model's chance this side wins and its expected return per unit at these odds (null until models are trained)
     model_prob: number | null;
     edge: number | null;
-    // "odds_api": best price across books; "espn": one book's market from ESPN (e.g. hits, which the Odds API lacks)
-    source: "odds_api" | "espn";
+    // "propline": best price across the consensus books (book = the book with it); "espn": one book's market from
+    // ESPN (e.g. hits, which PropLine lacks)
+    source: "propline" | "espn";
     book: string | null;
+    // every other book's price for this side, best first (PropLine rows only)
+    other_books?: PropBookPrice[];
+}
+
+export interface PropBookPrice {
+    book: string;
+    odds: number;
+    line: number;
+    // false for the books kept out of the consensus (Bovada, exchanges)
+    consensus: boolean;
 }

@@ -1,0 +1,440 @@
+{
+ "id": "9001",
+ "sport_key": "hockey_nhl",
+ "commence_time": "2026-10-07T23:00:00Z",
+ "home_team": "Toronto Maple Leafs",
+ "away_team": "Montréal Canadiens",
+ "home_team_key": "maple_leafs",
+ "away_team_key": "canadiens",
+ "bookmakers": [
+  {
+   "key": "draftkings",
+   "title": "DraftKings",
+   "last_update": "2026-10-07T18:00:00Z",
+   "markets": [
+    {
+     "key": "h2h",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Toronto Maple Leafs",
+       "description": "Toronto Maple Leafs",
+       "price": -160,
+       "point": null
+      },
+      {
+       "name": "Montréal Canadiens",
+       "description": "Montréal Canadiens",
+       "price": 135,
+       "point": null
+      }
+     ]
+    },
+    {
+     "key": "spreads",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Toronto Maple Leafs",
+       "description": "",
+       "price": 150,
+       "point": -1.5
+      },
+      {
+       "name": "Montréal Canadiens",
+       "description": "",
+       "price": -180,
+       "point": 1.5
+      }
+     ]
+    },
+    {
+     "key": "totals",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "",
+       "price": -110,
+       "point": 6.5
+      },
+      {
+       "name": "Under",
+       "description": "",
+       "price": -110,
+       "point": 6.5
+      }
+     ]
+    },
+    {
+     "key": "totals",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": "Toronto Maple Leafs",
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "",
+       "price": -120,
+       "point": 3.5
+      },
+      {
+       "name": "Under",
+       "description": "",
+       "price": 100,
+       "point": 3.5
+      }
+     ]
+    },
+    {
+     "key": "player_points",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Auston Matthews",
+       "price": -150,
+       "point": 0.5,
+       "player_id": "nhl:8479318",
+       "book_updated_at": "2026-10-07T17:59:00Z"
+      },
+      {
+       "name": "Under",
+       "description": "Auston Matthews",
+       "price": 120,
+       "point": 0.5,
+       "player_id": "nhl:8479318"
+      }
+     ]
+    },
+    {
+     "key": "player_points",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "alternate",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Auston Matthews",
+       "price": 250,
+       "point": 1.5,
+       "player_id": "nhl:8479318"
+      },
+      {
+       "name": "Under",
+       "description": "Auston Matthews",
+       "price": -330,
+       "point": 1.5,
+       "player_id": "nhl:8479318"
+      }
+     ]
+    },
+    {
+     "key": "player_goals",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Auston Matthews",
+       "price": 110,
+       "point": 0.5,
+       "player_id": "nhl:8479318"
+      },
+      {
+       "name": "Under",
+       "description": "Auston Matthews",
+       "price": -140,
+       "point": 0.5,
+       "player_id": "nhl:8479318"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "fanduel",
+   "title": "FanDuel",
+   "last_update": "2026-10-07T18:00:00Z",
+   "markets": [
+    {
+     "key": "h2h",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "TOR Maple Leafs",
+       "description": "",
+       "price": -155,
+       "point": null,
+       "side": "home"
+      },
+      {
+       "name": "MTL Canadiens",
+       "description": "",
+       "price": 130,
+       "point": null,
+       "side": "away"
+      }
+     ]
+    },
+    {
+     "key": "player_points",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Auston Matthews",
+       "price": -140,
+       "point": 0.5,
+       "player_id": "nhl:8479318"
+      },
+      {
+       "name": "Under",
+       "description": "Auston Matthews",
+       "price": 110,
+       "point": 0.5,
+       "player_id": "nhl:8479318"
+      },
+      {
+       "name": "Over",
+       "description": "Unknown Skater",
+       "price": 200,
+       "point": 0.5,
+       "player_id": "nhl:1"
+      }
+     ]
+    },
+    {
+     "key": "goalie_saves",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Joseph Woll",
+       "price": -115,
+       "point": 26.5,
+       "player_id": "nhl:8479361"
+      },
+      {
+       "name": "Under",
+       "description": "Joseph Woll",
+       "price": -105,
+       "point": 26.5,
+       "player_id": "nhl:8479361"
+      }
+     ]
+    },
+    {
+     "key": "player_shots_on_goal",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": "2026-10-07T17:00:00Z",
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Auston Matthews",
+       "price": -120,
+       "point": 3.5,
+       "player_id": "nhl:8479318"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "betrivers",
+   "title": "BetRivers",
+   "last_update": "2026-10-07T18:00:00Z",
+   "markets": [
+    {
+     "key": "player_points_1plus",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "milestone",
+     "outcomes": [
+      {
+       "name": "Yes",
+       "description": "Auston Matthews",
+       "price": -145,
+       "point": null,
+       "player_id": "nhl:8479318"
+      }
+     ]
+    },
+    {
+     "key": "player_points_2plus",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "milestone",
+     "outcomes": [
+      {
+       "name": "Yes",
+       "description": "Auston Matthews",
+       "price": 260,
+       "point": null,
+       "player_id": "nhl:8479318"
+      }
+     ]
+    },
+    {
+     "key": "player_hits",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Auston Matthews",
+       "price": 100,
+       "point": 1.5,
+       "player_id": "nhl:8479318"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "bovada",
+   "title": "Bovada",
+   "last_update": "2026-10-07T18:00:00Z",
+   "markets": [
+    {
+     "key": "h2h",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Toronto Maple Leafs",
+       "description": "",
+       "price": -150,
+       "point": null
+      },
+      {
+       "name": "Montreal Canadiens",
+       "description": "",
+       "price": 140,
+       "point": null
+      }
+     ]
+    },
+    {
+     "key": "player_points",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Auston Matthews",
+       "price": -130,
+       "point": 0.5,
+       "player_id": "nhl:8479318"
+      },
+      {
+       "name": "Under",
+       "description": "Auston Matthews",
+       "price": null,
+       "point": 0.5,
+       "player_id": "nhl:8479318"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "pinnacle",
+   "title": "Pinnacle",
+   "last_update": "2026-10-07T18:00:00Z",
+   "pregame_only": true,
+   "markets": [
+    {
+     "key": "h2h",
+     "description": "",
+     "last_update": "2026-10-07T18:00:00Z",
+     "period": null,
+     "suspended_at": null,
+     "team": null,
+     "line_type": "main",
+     "outcomes": [
+      {
+       "name": "Toronto Maple Leafs",
+       "description": "",
+       "price": -170,
+       "point": null
+      },
+      {
+       "name": "Montreal Canadiens",
+       "description": "",
+       "price": 150,
+       "point": null
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

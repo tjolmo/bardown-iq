@@ -1,4 +1,5 @@
 from external.nhl.games import get_odds_for_current_games
+from app.crud.game_line_quotes import get_moneylines
 from predictions.predict import get_upcoming_game_prediction
 from app.crud.teams import search_teams_by_name
 from fastapi import Query
@@ -11,6 +12,17 @@ from app.crud.games import get_all_games_for_date, get_next_n_games_info_by_tri_
 from app.schemas.teams import TeamBasicInfoOut, Last5GameInfoOut, TeamScheduledGameInfoOut, TeamRosteredPlayer, TeamSidePrediction, TeamGamePredictionOut, TeamMoneylineOut
 
 router = APIRouter(prefix="/teams", tags=["teams"])
+
+
+async def moneylines_for(db, game_ids: list[int], nhl_fallback: bool) -> dict[int, TeamMoneylineOut]:
+    """game_id -> moneyline: PropLine's books (game_line_quotes), else NHL's partner feed for today's games."""
+    out = {gid: TeamMoneylineOut(**m) for gid, m in (await get_moneylines(db, game_ids)).items()}
+    if nhl_fallback and len(out) < len(game_ids):
+        for odd in await get_odds_for_current_games() or []:
+            if odd.game_id in game_ids and odd.game_id not in out:
+                out[odd.game_id] = TeamMoneylineOut(home=odd.home_moneyline, away=odd.away_moneyline, source="nhl")
+    return out
+
 
 @router.get("/last5/{tri_code}", status_code=200, response_model=list[Last5GameInfoOut])
 async def get_last_5_games(tri_code: str, db = Depends(get_db)):
@@ -37,7 +49,7 @@ async def get_team_next_5_games(tri_code: str, offset: int, db = Depends(get_db)
     next_5_games = await get_next_n_games_info_by_tri_code(db, tri_code, 5, offset)
     next_5_cleaned = []
     if next_5_games is not None:
-        moneyline_odds = await get_odds_for_current_games()
+        moneyline_odds = await moneylines_for(db, [g.id for g in next_5_games], nhl_fallback=True)
         for i, game in enumerate(next_5_games):
             try: 
                 home_team = await get_team_by_tri_code(db, game.home_team_tri_code)
@@ -70,14 +82,9 @@ async def get_team_next_5_games(tri_code: str, offset: int, db = Depends(get_db)
                     home=TeamSidePrediction(tri_code=game.home_team_tri_code, prob_win=prob_home_win),
                     away=TeamSidePrediction(tri_code=game.away_team_tri_code, prob_win=prob_away_win),
                 ),
-                moneyline=None,
+                moneyline=moneyline_odds.get(game.id),
                 isNextGame=True if i == 0 else False
             )
-            if moneyline_odds:
-                for odd in moneyline_odds:
-                    if odd.game_id == game.id:
-                        game_info.moneyline = TeamMoneylineOut(home=odd.home_moneyline, away=odd.away_moneyline)
-                        break
             next_5_cleaned.append(game_info)
         return next_5_cleaned
     raise HTTPException(status_code=404, detail=f"No future games found for Team {tri_code} in DB")
@@ -97,17 +104,13 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid date format. Please use YYYYMMDD or 'today'")
     
-    # get odds (one call has all games, only odds for today)
-    if int_date == today_int_date:
-        moneyline_odds = await get_odds_for_current_games()
-    else:
-        moneyline_odds = None
-
     games = await get_all_games_for_date(db, int_date)
     cleaned_games = []
 
     if games is None or len(games) == 0:
         return []
+    # PropLine's lines for any date it priced; NHL's partner feed (today only) fills the gaps
+    moneyline_odds = await moneylines_for(db, [g.id for g in games], nhl_fallback=int_date == today_int_date)
     for i, game in enumerate(games):
         try: 
             home_team = await get_team_by_tri_code(db, game.home_team_tri_code)
@@ -147,14 +150,9 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
                 home=TeamSidePrediction(tri_code=game.home_team_tri_code, prob_win=prob_home_win),
                 away=TeamSidePrediction(tri_code=game.away_team_tri_code, prob_win=prob_away_win)
                 ) if int_date >= today_int_date else None,
-            moneyline=None,
+            moneyline=moneyline_odds.get(game.id),
             isNextGame=False
         )
-        if moneyline_odds:
-            for odd in moneyline_odds:
-                if odd.game_id == game.id:
-                    game_info.moneyline = TeamMoneylineOut(home=odd.home_moneyline, away=odd.away_moneyline)
-                    break
         cleaned_games.append(game_info)
     if len(cleaned_games) == 0:
         raise HTTPException(status_code=404, detail=f"No games found for today in DB")

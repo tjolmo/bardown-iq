@@ -152,6 +152,14 @@ class GoaliePredictionOut(BaseModel):
     class Config:
         from_attributes = True
     
+class PropBookPriceOut(BaseModel):
+    """One book's price for a prop side (the "+N books" list under a prop card)"""
+    book: str
+    odds: float
+    line: float
+    # one of the books the shown best price and the consensus come from (books.CONSENSUS_BOOKS)
+    consensus: bool = True
+
 class PlayerPropOut(BaseModel):
     """Output model for a player's prop"""
     game_id: int
@@ -163,7 +171,10 @@ class PlayerPropOut(BaseModel):
     # the model's chance this side wins, and its expected return per unit at these odds (None if no model yet)
     model_prob: float | None = None
     edge: float | None = None
-    # where the price came from: "odds_api" (best price across books at the consensus line) or "espn" (one book's
-    # market from ESPN's feed, e.g. hits, which the Odds API has no market for); book is set for ESPN rows
-    source: str = "odds_api"
+    # where the price came from: "propline" (best price across the consensus books at the consensus line; `book`
+    # is the book with that price) or "espn" (one book's market from ESPN's feed, e.g. hits, which PropLine has no
+    # market for)
+    source: str = "propline"
     book: str | None = None
+    # every other stored book's price for this side (PropLine rows only)
+    other_books: list[PropBookPriceOut] = []

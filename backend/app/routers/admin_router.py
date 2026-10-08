@@ -11,7 +11,7 @@ from app.schedules import full_refresh
 admin_token_header = APIKeyHeader(name="X-Admin-Token", auto_error=False, description="Value of the ADMIN_TOKEN env var")
 
 def require_admin_token(token: str | None = Security(admin_token_header)):
-    """The refresh hits external APIs (including the metered Odds API) and retrains models,
+    """The refresh hits external APIs (including the metered PropLine API) and retrains models,
     so it is only available when ADMIN_TOKEN is set, and only to callers presenting it."""
     expected = os.getenv("ADMIN_TOKEN")
     if not expected:

@@ -1,4 +1,5 @@
-"""The player page's prop board: Odds API best prices plus ESPN markets (hits) the Odds API doesn't carry."""
+"""The player page's prop board: PropLine best prices (with every book's price) plus ESPN markets (hits) PropLine
+doesn't carry."""
 import asyncio
 import datetime
 import os
@@ -13,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.crud import props as C
-from app.models import Base, Games, Player, PlayerPropOdds, Props
+from app.models import Base, Games, Player, PlayerPropOdds, PropQuote, Props
 from app.schemas.player import PlayerPropOut
 
 NOW = datetime.datetime(2026, 10, 8, 21, 0, tzinfo=datetime.timezone.utc)
@@ -35,14 +36,15 @@ def espn(gid, prop, line, over, under, pid=1, book="Draft Kings"):
 
 
 def test_props_upsert_ignores_output_only_fields():
-    # PlayerPropOut carries model_prob / edge / source / book for the API; the props table has none of them
+    # PlayerPropOut carries model_prob / edge / source / other_books for the API; the props table has none of them
     prop = PlayerPropOut(game_id=1, player_id=1, prop_type="player_points", over_under="Over", odds=-110, line=0.5,
-                         model_prob=0.5, edge=0.01, source="odds_api")
+                         model_prob=0.5, edge=0.01, source="propline", book="fanduel")
     sql = str(C.props_upsert_stmt([prop]).compile(dialect=postgresql.dialect()))
-    assert "ON CONFLICT" in sql and "model_prob" not in sql and "source" not in sql
+    assert "ON CONFLICT" in sql and "model_prob" not in sql and "source" not in sql and "other_books" not in sql
+    assert "book = excluded.book" in sql
 
 
-def test_espn_rows_fill_markets_the_odds_api_missed():
+def test_espn_rows_fill_markets_propline_missed():
     markets = [NS(game_id=1, player_id=1, prop_type="hits", line=2.5, over_price=-105, under_price=-125, book="DK"),
                NS(game_id=1, player_id=1, prop_type="points", line=0.5, over_price=-150, under_price=120, book="DK"),
                NS(game_id=1, player_id=1, prop_type="blocked_shots", line=1.5, over_price=110, under_price=None, book="DK"),
@@ -73,9 +75,9 @@ def test_board_merges_latest_game_and_router_prices_hits(monkeypatch):
         return await R.get_player_props(1, db)
     out = run(go)
     by = {(p.prop_type, p.over_under): p for p in out}
-    # game 2 only; ESPN's points market is left out (the Odds API priced points), its hits are added
+    # game 2 only; ESPN's points market is left out (PropLine priced points), its hits are added
     assert set(by) == {("player_points", "Over"), ("player_points", "Under"), ("player_hits", "Over"), ("player_hits", "Under")}
-    assert by[("player_points", "Over")].source == "odds_api" and by[("player_hits", "Over")].source == "espn"
+    assert by[("player_points", "Over")].source == "propline" and by[("player_hits", "Over")].source == "espn"
     hits = by[("player_hits", "Over")]
     # negative binomial pricing (alpha 0.12) from the model's 2.4 expected hits, and the return at -105
     from predictions.predict import prop_probability
@@ -92,3 +94,25 @@ def test_board_shows_espn_only_game():
     rows, none = run(go)
     assert [(r.prop_type, r.over_under) for r in rows] == [("player_blocked_shots", "Over"), ("player_blocked_shots", "Under")]
     assert none == []
+
+
+def pq(side, odds, book, line=0.5, seen=NOW):
+    return PropQuote(game_id=2, player_id=1, prop_type="player_points", over_under=side, line=line, bookmaker=book,
+                     odds=odds, first_odds=odds, first_seen=seen, last_seen=seen, provider="propline")
+
+
+def test_board_lists_other_books_from_latest_fetch():
+    async def go(db):
+        db.add(Props(game_id=2, player_id=1, prop_type="player_points", over_under="Over", odds=-110, line=0.5,
+                     book="fanduel"))
+        db.add_all([pq("Over", -110, "fanduel"), pq("Over", -125, "draftkings"), pq("Over", 105, "bovada"),
+                    pq("Over", 260, "draftkings", line=1.5), pq("Under", -105, "draftkings"),
+                    # pulled before the latest fetch: not listed
+                    pq("Over", -100, "betrivers", seen=NOW - datetime.timedelta(hours=3))])
+        await db.commit()
+        return await C.get_player_prop_board(db, 1)
+    (row,) = run(go)
+    assert row.book == "fanduel" and row.source == "propline"
+    # the shown price is left out; same line first (best first), then other lines; Bovada is flagged
+    assert [(b.book, b.line, b.odds, b.consensus) for b in row.other_books] == [
+        ("bovada", 0.5, 105, False), ("draftkings", 0.5, -125, True), ("draftkings", 1.5, 260, True)]
