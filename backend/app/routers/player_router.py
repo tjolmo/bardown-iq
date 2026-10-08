@@ -12,7 +12,8 @@ from app.schemas.player import (GoalieLast5BasicStatsGetOut, GoalieSeasonBasicSt
 from app.crud.players import get_player_by_id, search_players_by_name, get_player_current_team_tri_code
 from app.crud.skater_game_logs import get_skater_last_5_basic_stats_from_db, get_player_game_log_by_game_and_player_id, get_skater_season_basic_stats_from_db
 from app.crud.goalie_game_logs import get_goalie_last_5_basic_stats_from_db, get_goalie_season_basic_stats_from_db
-from predictions.predict import predict_skater, predict_goalie, prop_probability, prop_dispersion
+from predictions.predict import predict_skater, predict_goalie
+from app.edge_board import price_props
 from app.models import Games
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -260,18 +261,7 @@ async def get_player_props(player_id: int, db = Depends(get_db)):
             return out
         try:
             game = await db.get(Games, out[0].game_id)
-            player = await get_player_by_id(db, player_id)
-            team = player.current_team_tri_code if player else None
-            if game is not None and team in (game.home_team_tri_code, game.away_team_tri_code):
-                predict = predict_goalie if player.position == "G" else predict_skater
-                expected = await predict(db, player_id, team, game) or {}
-                alphas = prop_dispersion()
-                for prop in out:
-                    prop.model_prob = prop_probability(expected, prop.prop_type, prop.line, prop.over_under, alphas)
-                    if prop.model_prob is not None:
-                        decimal = 1 + prop.odds / 100 if prop.odds > 0 else 1 + 100 / abs(prop.odds)
-                        prop.edge = round(prop.model_prob * decimal - 1, 4)
-                        prop.model_prob = round(prop.model_prob, 4)
+            await price_props(db, await get_player_by_id(db, player_id), out, game)
         except (FileNotFoundError, LookupError):
             pass    # props still show without model numbers until models are trained
         return out

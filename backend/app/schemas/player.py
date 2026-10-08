@@ -178,3 +178,30 @@ class PlayerPropOut(BaseModel):
     book: str | None = None
     # every other stored book's price for this side (PropLine rows only)
     other_books: list[PropBookPriceOut] = []
+class EdgePlayerOut(BaseModel):
+    """A player on the "players with edge" board: at least one prop side with a positive edge"""
+    player_id: int
+    first_name: str
+    last_name: str
+    headshot: str | None = None
+    position: str | None = None
+    team: str | None = None
+    opponent: str
+    home: bool
+    game_id: int
+    start_time: str | None = None
+    # goalies: how sure the starter pick is (confirmed / probable / projected); saves props assume he starts
+    starter_status: str | None = None
+    best_edge: float
+    # every priced prop of the player's game, best edge first
+    props: list[PlayerPropOut]
+
+class EdgeBoardOut(BaseModel):
+    """The next slate's players with edge"""
+    game_date: int | None
+    built_at: str
+    # players whose props could be priced (the denominator of the board)
+    players_priced: int
+    # a background rebuild was started because this copy is stale
+    refreshing: bool = False
+    players: list[EdgePlayerOut]

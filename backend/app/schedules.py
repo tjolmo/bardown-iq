@@ -578,8 +578,10 @@ async def pregame_odds_pipeline():
     await run_step("player prop odds", fetch_recent_player_prop_odds)
     # every book's props and game lines from PropLine (the prediction log's fallback when ESPN has no line)
     await run_step("props", fetch_current_player_props)
-    # last: freezes today's predictions next to the market snapshot just fetched (forward test)
+    # freezes today's predictions next to the market snapshot just fetched (forward test)
     await run_step("prediction log", log_todays_predictions)
+    # after the log, so the forward test never waits on it
+    await run_step("edge board", warm_edge_board)
 
 async def morning_odds_pipeline():
     """A late-morning (ET) price snapshot, so the price path has an early point between the open and the
@@ -588,6 +590,12 @@ async def morning_odds_pipeline():
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("player prop odds", fetch_recent_player_prop_odds)
     await run_step("props", fetch_current_player_props)
+    await run_step("edge board", warm_edge_board)
+
+async def warm_edge_board():
+    """Reprices the players-with-edge board right after a props fetch, so visitors get fresh prices without waiting."""
+    from .edge_board import warm_board
+    await warm_board(AsyncSessionLocal)
 
 async def log_todays_predictions():
     from predictions.prediction_log import log_predictions

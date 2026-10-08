@@ -57,11 +57,12 @@ def test_espn_rows_fill_markets_propline_missed():
 
 
 def test_board_merges_latest_game_and_router_prices_hits(monkeypatch):
+    from app import edge_board as E
     from app.routers import player_router as R
 
     async def fake_predict_skater(db, pid, team, game):
         return {"goals": 0.3, "points": 0.7, "hits": 2.4}
-    monkeypatch.setattr(R, "predict_skater", fake_predict_skater)
+    monkeypatch.setattr(E, "predict_skater", fake_predict_skater)
 
     async def go(db):
         db.add(Player(id=1, first_name="A", last_name="S", position="C", current_team_tri_code="TOR", last_updated=NOW))

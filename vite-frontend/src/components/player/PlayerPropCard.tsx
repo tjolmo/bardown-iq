@@ -2,7 +2,7 @@ import { useState, type FC } from "react";
 import type { PlayerPropData } from "../../types/player";
 import { formatBook, formatOdds } from "../../utils/books";
 
-const formatPropType = (prop_type: string): string => {
+export const formatPropType = (prop_type: string): string => {
     const map: Record<string, string> = {
         "player_goals": "Goals",
         "player_assists": "Assists",
