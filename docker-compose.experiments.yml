@@ -4,7 +4,7 @@
 # container (docker-compose.forward.yml) does the fetching, logging and scoring. Set EXP_SCHEDULER_ENABLED=1 to
 # run the jobs here instead, but never in both at once.
 # usage (from this folder, with the main stack's db up):
-#   docker compose -p nhl-exp -f docker-compose.experiments.yml --env-file /Users/trevor/nhl-prediction-capstone/.env up --build
+#   docker compose -p nhl-model-experiments -f docker-compose.experiments.yml up --build
 services:
   backend:
     build: ./backend

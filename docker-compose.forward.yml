@@ -2,7 +2,7 @@
 # The code is baked into the image at build time (no bind mount, no --reload), so editing the worktree never
 # restarts it, retrains it or changes what it logs. Only a deliberate rebuild does:
 #   GIT_COMMIT=$(git rev-parse --short HEAD) docker compose -p nhl-fwd -f docker-compose.forward.yml \
-#     --env-file /Users/trevor/nhl-prediction-capstone/.env up -d --build
+#     --env-file .env up -d --build
 # Commit first: GIT_COMMIT is how a logged model_version is traced back to its code.
 # Model bundles live in the fwd_models volume. On first start it is seeded from the image's predictions/models, so a
 # rebuild of the code keeps the fitted models; retraining follows TRAIN_SCHEDULE (weekly, Monday 03:00 UTC).
