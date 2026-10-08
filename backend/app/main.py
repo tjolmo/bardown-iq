@@ -1,5 +1,6 @@
 import datetime
-from app.schedules import train_models
+import os
+from app.schedules import train_models, models_missing, train_schedule
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -13,18 +14,36 @@ from .schedules import (add_current_teams_to_db, add_old_teams_to_db, fetch_curr
                         morning_odds_pipeline)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+def scheduler_enabled() -> bool:
+    """SCHEDULER_ENABLED=0 turns off every scheduled job and the startup refresh (a dev container sharing the
+    forward-test container's database, which does the fetching and logging)."""
+    return os.environ.get("SCHEDULER_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+
+def missed_pregame_log(now: datetime.datetime | None = None) -> bool:
+    """True when the container starts after the 21:00 UTC pregame run but before the game day ends (06:00 UTC):
+    the scheduler doesn't replay jobs due before it existed, and a pre-game prediction can't be logged later."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return now.hour >= 21 or now.hour < 6
+
 async def run_startup_refresh():
     """Initial data refresh, run in the background so the API can serve requests while it works.
-    Steps are ordered by dependency; a failing step is logged and does not stop the rest."""
-    steps = [
+    Steps are ordered by dependency; a failing step is logged and does not stop the rest.
+    Training only runs when a bundle is missing (TRAIN_ON_STARTUP=always forces it): a restart, or a --reload after
+    a code edit, must not refit the models and start a new model_version mid forward test."""
+    steps = []
+    if missed_pregame_log() and not models_missing():
+        # first, before games start: today's predictions from the data already stored
+        steps.append(("pregame odds (catch-up)", pregame_odds_pipeline))
+    steps += [
         ("teams", add_current_teams_to_db),
         ("old teams", add_old_teams_to_db),
         ("schedules", fetch_current_schedules_for_all_teams),
         ("rosters", fetch_current_rosters_for_all_teams),
         ("player logs", scrape_all_player_logs),
         ("team stats", scrape_team_stats),
-        ("training", train_models),
     ]
+    if models_missing() or os.environ.get("TRAIN_ON_STARTUP", "").strip().lower() == "always":
+        steps.append(("training", train_models))
     for name, step in steps:
         try:
             await step()
@@ -35,6 +54,12 @@ async def run_startup_refresh():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler()
+    print(f"Code commit {os.environ.get('GIT_COMMIT', 'unknown')}, TRAIN_SCHEDULE={train_schedule()}")
+    if not scheduler_enabled():
+        print("SCHEDULER_ENABLED=0: no scheduled jobs and no startup refresh")
+        yield
+        await engine.dispose()
+        return
     # one ordered nightly job instead of independent 03:00/04:00 jobs that raced each other
     # run through the shared lock so the nightly run never overlaps a startup or manual refresh
     scheduler.add_job(refresh.run_exclusive, args=["nightly", nightly_pipeline], trigger="cron", hour=3, max_instances=1, coalesce=True, misfire_grace_time=3600)

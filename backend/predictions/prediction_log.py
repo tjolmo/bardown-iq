@@ -33,7 +33,7 @@ from types import SimpleNamespace
 import statistics
 from collections import Counter, defaultdict
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.games import FINISHED_GAME_STATES
@@ -646,7 +646,27 @@ async def model_report(db: AsyncSession, model_version_filter: str | None = None
             "player_by_source": {stat: {src: {k: v for k, v in summarize(g).items() if k != "calibration"}
                                         for src, g in sorted(srcs.items())}
                                  for stat, srcs in sorted(by_source.items())},
-            "coverage": await log_coverage(db, model_version_filter, start, end)}
+            "coverage": await log_coverage(db, model_version_filter, start, end),
+            "unlogged_games": await unlogged_games(db, start, end)}
+
+
+async def unlogged_games(db: AsyncSession, start: int | None = None, end: int | None = None) -> dict:
+    """Finished regular-season/playoff games with no prediction_log row, per game date, from the first logged date
+    (or `start`) on: days the afternoon run never happened (machine asleep, container down). They can't be logged
+    after the fact, so they're gaps in the forward test, not pending work."""
+    first = start or (await db.execute(select(func.min(PredictionLog.game_date)))).scalar()
+    if first is None:
+        return {"since": None, "games": 0, "by_date": {}}
+    logged = select(PredictionLog.game_id)
+    stmt = select(Games.id, Games.date).where(Games.date >= first, Games.game_state.in_(FINISHED_GAME_STATES),
+                                              Games.id.not_in(logged))
+    if end:
+        stmt = stmt.where(Games.date <= end)
+    by_date: Counter = Counter()
+    for game_id, date in (await db.execute(stmt)).all():
+        if game_id // 10_000 % 100 in (2, 3):
+            by_date[date] += 1
+    return {"since": first, "games": sum(by_date.values()), "by_date": dict(sorted(by_date.items()))}
 
 
 async def log_coverage(db: AsyncSession, model_version_filter: str | None = None, start: int | None = None,

@@ -833,14 +833,19 @@ def skater_features(skaters: pd.DataFrame, team_feats: pd.DataFrame, league_rate
         for pos, grp in df.groupby("is_defense"):
             hours = grp["toi"].sum() / 3600.0
             league_rates[float(pos)] = {s: float(grp[s].sum() / hours) for s in SKATER_RATE_STATS}
-    prior_hours = SHRINK_GAMES * df["is_defense"].map({1.0: 22 * 60, 0.0: 15 * 60}).astype(float) / 3600.0
+    default_toi = df["is_defense"].map({1.0: 22 * 60, 0.0: 15 * 60}).astype(float)
+    prior_hours = SHRINK_GAMES * default_toi / 3600.0
+    exp_hours = df["toi_ewm"].fillna(default_toi) / 3600.0
+    # built in one dict and joined once: inserting columns one by one fragments the frame (pandas PerformanceWarning)
+    rate_cols = {}
     for s in SKATER_RATE_STATS:
         stat_sum = prior_sums[s]
         league = df["is_defense"].map({k: v[s] for k, v in league_rates.items()}).astype(float)
         rate = (stat_sum + prior_hours * league) / (toi_sum / 3600.0 + prior_hours)
-        df[f"{s}_per60_shrunk"] = rate
+        rate_cols[f"{s}_per60_shrunk"] = rate
         # expected count this game = talent rate x expected ice time
-        df[f"exp_{s}"] = rate * df["toi_ewm"].fillna(df["is_defense"].map({1.0: 22 * 60, 0.0: 15 * 60})) / 3600.0
+        rate_cols[f"exp_{s}"] = rate * exp_hours
+    df = pd.concat([df.drop(columns=[c for c in rate_cols if c in df]), pd.DataFrame(rate_cols, index=df.index)], axis=1)
 
     df = attach_team_context(df, team_feats)
     return df, league_rates

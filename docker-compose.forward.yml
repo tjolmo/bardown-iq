@@ -1,0 +1,40 @@
+# The forward test: a frozen copy of this worktree's code, logging predictions against nhl_experiments.
+# The code is baked into the image at build time (no bind mount, no --reload), so editing the worktree never
+# restarts it, retrains it or changes what it logs. Only a deliberate rebuild does:
+#   GIT_COMMIT=$(git rev-parse --short HEAD) docker compose -p nhl-fwd -f docker-compose.forward.yml \
+#     --env-file /Users/trevor/nhl-prediction-capstone/.env up -d --build
+# Commit first: GIT_COMMIT is how a logged model_version is traced back to its code.
+# Model bundles live in the fwd_models volume. On first start it is seeded from the image's predictions/models, so a
+# rebuild of the code keeps the fitted models; retraining follows TRAIN_SCHEDULE (weekly, Monday 03:00 UTC).
+# This is the only container that should run the scheduler against nhl_experiments: the dev stack
+# (docker-compose.experiments.yml) has SCHEDULER_ENABLED=0 so the two don't fetch, score and log twice.
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    container_name: fwd_fastapi_backend
+    restart: always
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - fwd_models:/app/predictions/models
+    ports:
+      - "8004:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/nhl_experiments
+      PROPLINE_API_KEY: ${PROPLINE_API_KEY}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      SCHEDULER_ENABLED: "1"
+      TRAIN_SCHEDULE: weekly
+      TRAIN_WEEKDAY: "0"
+    networks:
+      - capstone
+
+volumes:
+  fwd_models:
+
+networks:
+  capstone:
+    name: nhl-prediction-capstone_default
+    external: true

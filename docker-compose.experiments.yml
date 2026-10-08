@@ -1,5 +1,8 @@
 # This worktree's backend + frontend against the scratch database nhl_experiments, on the main stack's network and
 # postgres_db container (never the real nhl-prediction DB). Ports 8003/5175 so it runs next to the main stack.
+# Dev only: no scheduled jobs, no startup refresh or training (SCHEDULER_ENABLED=0). The frozen forward-test
+# container (docker-compose.forward.yml) does the fetching, logging and scoring. Set EXP_SCHEDULER_ENABLED=1 to
+# run the jobs here instead, but never in both at once.
 # usage (from this folder, with the main stack's db up):
 #   docker compose -p nhl-exp -f docker-compose.experiments.yml --env-file /Users/trevor/nhl-prediction-capstone/.env up --build
 services:
@@ -15,6 +18,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/nhl_experiments
       PROPLINE_API_KEY: ${PROPLINE_API_KEY}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
+      SCHEDULER_ENABLED: ${EXP_SCHEDULER_ENABLED:-0}
+      TRAIN_SCHEDULE: ${EXP_TRAIN_SCHEDULE:-off}
     networks:
       - capstone
 

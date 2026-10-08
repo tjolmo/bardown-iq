@@ -140,8 +140,8 @@ def _fit_skaters(skaters: pd.DataFrame, team_feats: pd.DataFrame) -> dict:
     del lineups
     targets = [t for t in SKATER_TARGETS if t in df and df[t].notna().any()]
     trend_targets = [t for t in SKATER_TREND_TARGETS if t in targets]
-    for t in trend_targets:
-        df[f"trend_{t}"] = F.league_trend(df, t)
+    if trend_targets:
+        df = pd.concat([df, pd.DataFrame({f"trend_{t}": F.league_trend(df, t) for t in trend_targets}, index=df.index)], axis=1)
 
     def baselines(train, valid, target):
         out = {"league_mean": np.full(len(valid), train[target].mean())}

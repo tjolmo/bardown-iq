@@ -30,7 +30,9 @@ from .crud.odds_snapshots import insert_game_odds_snapshots, insert_player_prop_
 from external.espn.props import fetch_player_prop_odds
 from external.espn.player_ids import build_player_index
 from app.database import AsyncSessionLocal
+from predictions.config import GOALIE_BUNDLE, SKATER_BUNDLE, TEAM_BUNDLE
 import asyncio
+import os
 from external.http import gather_bounded
 import datetime
 
@@ -356,6 +358,28 @@ async def fetch_current_game_lines():
                 await store_game_lines(db, game_id, lines)
 
 
+# How often the nightly run retrains (env TRAIN_SCHEDULE): "weekly" (default) refits once a week on TRAIN_WEEKDAY
+# (0 = Monday, the 03:00 UTC run after Sunday's games), "nightly" every night, "off" never (a frozen model; manual
+# full refreshes still train). Features (form, ratings, starters, injuries) update from the fresh logs every night
+# either way; only the fitted weights wait, so the forward test's model_version holds for a whole week.
+TRAIN_SCHEDULES = ("nightly", "weekly", "off")
+
+def train_schedule() -> str:
+    schedule = os.environ.get("TRAIN_SCHEDULE", "weekly").strip().lower()
+    return schedule if schedule in TRAIN_SCHEDULES else "weekly"
+
+def should_train_tonight(now: datetime.datetime | None = None) -> bool:
+    schedule = train_schedule()
+    if schedule == "off":
+        return False
+    if schedule == "nightly":
+        return True
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return now.weekday() == int(os.environ.get("TRAIN_WEEKDAY", "0"))
+
+def models_missing() -> bool:
+    return not all(p.exists() for p in (SKATER_BUNDLE, GOALIE_BUNDLE, TEAM_BUNDLE))
+
 async def train_models():
     # features are built from the game logs inside training, so there is no separate feature step
     async with AsyncSessionLocal() as db:
@@ -594,8 +618,10 @@ async def nightly_pipeline():
     # after the fetches above captured last night's closing prices and the logs scrape brought the box scores
     await run_step("prediction scoring", score_logged_predictions)
     await run_step("props", fetch_current_player_props)
-    if logs_ok:
+    if logs_ok and (should_train_tonight() or models_missing()):
         await run_step("training", train_models)
+    elif logs_ok:
+        print(f"Skipping training: TRAIN_SCHEDULE={train_schedule()} (bundles kept, model_version unchanged)")
 
 async def full_refresh():
     """Refreshes everything: teams, schedules, rosters, game logs, live scores, props and models.
