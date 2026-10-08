@@ -497,9 +497,9 @@ async def fetch_confirmed_starters(days: int = 1, game_day: datetime.date | None
             problems.extend(issues)
         written = await upsert_game_starters(db, starters)
     if written:
-        # rebuild the cached prediction context on next use so it picks up the new starters
+        # rebuild the cached prediction context so it picks up the new starters
         from predictions import predict
-        predict._context["built_at"] = 0.0
+        predict.invalidate_team_context()
     counts = {status: sum(s.status == status for s in starters) for status in ("actual", "confirmed", "probable")}
     print(f"Starters: {written} team-games stored for {len(games)} games ({counts}); missing {len(problems)}: {problems[:10]}")
     return written
@@ -518,9 +518,9 @@ async def fetch_injury_report() -> int:
         players, _, _ = await get_player_match_data(db, get_current_season_start_year())
         rows, unmatched = match_injured_players(build_player_index(players), rows, await get_known_athlete_ids(db))
         written = await insert_injury_snapshot(db, rows)
-    # rebuild the cached prediction context on next use so it picks up the new report
+    # rebuild the cached prediction context so it picks up the new report
     from predictions import predict
-    predict._context["built_at"] = 0.0
+    predict.invalidate_team_context()
     statuses = {s: sum(r["status"] == s for r in rows) for s in sorted({r["status"] for r in rows})}
     # minor leaguers on ESPN's list are often not in the players table; they aren't in any lineup anyway
     print(f"Injuries: {written} listed players stored {statuses}; {len(unmatched)} not matched to NHL ids: "
@@ -595,6 +595,13 @@ async def morning_odds_pipeline():
 async def warm_edge_board():
     """Reprices the players-with-edge board right after a props fetch, so visitors get fresh prices without waiting."""
     from .edge_board import warm_board
+    from predictions.predict import refresh_team_context
+    # the board must price with the injuries and starters just fetched, not the context served while it rebuilds
+    try:
+        async with AsyncSessionLocal() as db:
+            await refresh_team_context(db)
+    except Exception as e:
+        print(f"Edge board: team context rebuild failed, pricing with the cached one: {e!r}")
     await warm_board(AsyncSessionLocal)
 
 async def log_todays_predictions():

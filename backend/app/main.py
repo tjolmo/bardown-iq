@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import os
 from app.schedules import train_models, models_missing, train_schedule
@@ -51,13 +52,26 @@ async def run_startup_refresh():
             print(f"Startup step '{name}' failed: {e!r}")
     print("Startup refresh finished")
 
+async def warm_caches():
+    """Builds the team context, then the edge board, so the first page views after a start (or a --reload) don't
+    wait ~8 s and ~45 s on them. Runs on every stack, scheduler or not."""
+    from predictions.predict import warm_team_context
+    from .edge_board import warm_board
+    await warm_team_context()
+    try:
+        await warm_board(AsyncSessionLocal)
+    except Exception as e:
+        print(f"Edge board warm-up failed (built on first use instead): {e!r}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler()
     print(f"Code commit {os.environ.get('GIT_COMMIT', 'unknown')}, TRAIN_SCHEDULE={train_schedule()}")
+    warm = asyncio.create_task(warm_caches())
     if not scheduler_enabled():
         print("SCHEDULER_ENABLED=0: no scheduled jobs and no startup refresh")
         yield
+        warm.cancel()
         await engine.dispose()
         return
     # one ordered nightly job instead of independent 03:00/04:00 jobs that raced each other
@@ -79,6 +93,7 @@ async def lifespan(app: FastAPI):
     yield
 
     print("Closing Scheduler and Postgres connection")
+    warm.cancel()
     refresh.cancel_background()
     scheduler.shutdown(wait=False)
     await engine.dispose()

@@ -21,7 +21,9 @@ services:
     build: ./backend
     container_name: fastapi_backend
     restart: always
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app"
+    # watch only the source packages: uvicorn's StatReload (watchfiles isn't installed, so --reload-exclude does
+    # nothing) otherwise walks every file under /app each second, including a local backend/.venv (~10K files)
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app --reload-dir /app/predictions --reload-dir /app/external"
     volumes:
       - ./backend:/app
     ports:

@@ -351,7 +351,11 @@ async def log_predictions(db: AsyncSession, game_date: int | None = None, now: d
     # fallback market where ESPN has no line: PropLine's quotes (fetched by the odds pipelines) as they stood now
     api_rows = quote_book_rows(await get_quotes_for_games(db, [g.id for g in games]), now)
     # rebuild the cached prediction context so just-fetched starters and odds are used
-    P._context["built_at"] = 0.0
+    P.invalidate_team_context()
+    try:
+        await P.refresh_team_context(db)
+    except Exception as e:
+        print(f"prediction log: team context rebuild failed ({e!r}); each game reports its own failure")
     # plain copies: a rollback after one game's failure expires ORM objects, and reloading them here would fail
     games = [SimpleNamespace(id=g.id, date=g.date, season=g.season, start_time=g.start_time,
                              home_team_tri_code=g.home_team_tri_code, away_team_tri_code=g.away_team_tri_code)

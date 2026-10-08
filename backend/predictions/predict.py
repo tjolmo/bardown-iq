@@ -25,9 +25,18 @@ def load_bundle(path) -> dict:
 
 # ---------- league-wide team context (shared by every prediction) ----------
 
+# Rebuilding the context takes ~8 s (loading the team/goalie history, then the Elo loop and lineups), so requests never
+# wait on it once one exists: a context older than CONTEXT_TTL_SECONDS (or one invalidated by a data fetch, or built
+# before the team model was retrained) is still served while a rebuild runs in the background, like the edge board.
+# Only a cold cache (startup, before warm_team_context finishes) builds inline. Jobs that must see just-fetched data
+# (the prediction log, the edge board warm step) call refresh_team_context first.
 CONTEXT_TTL_SECONDS = 600
+CONTEXT_RETRY_SECONDS = 60      # a failed background rebuild isn't retried on every request
 _context: dict = {"built_at": 0.0}
 _context_lock = asyncio.Lock()
+_context_refresh: asyncio.Task | None = None
+_context_failed_at = 0.0
+_context_generation = 0         # bumped by invalidate: a rebuild that started before a fetch doesn't count as fresh
 
 def _today() -> int:
     """The current NHL game day. Game dates are North American, so UTC shifted back 12 hours keeps tonight's
@@ -140,28 +149,92 @@ async def _load_injuries(db: AsyncSession) -> pd.DataFrame | None:
         print(f"Could not load player_injuries, using previous-game lineups: {e!r}")
         return None
 
+def _team_mtime() -> float | None:
+    return TEAM_BUNDLE.stat().st_mtime if TEAM_BUNDLE.exists() else None
+
+def _context_stale() -> bool:
+    return (time.monotonic() - _context["built_at"] >= CONTEXT_TTL_SECONDS
+            or _context.get("team_mtime") != _team_mtime() or _context.get("generation") != _context_generation)
+
+def invalidate_team_context() -> None:
+    """Marks the context stale after a fetch changes its inputs (starters, injuries): the next use rebuilds it in the
+    background, or refresh_team_context rebuilds it now."""
+    global _context_generation
+    _context_generation += 1
+
+async def _rebuild_context(db: AsyncSession) -> dict:
+    """Builds the context from the DB and swaps it in whole (a reader holding the old dict keeps a consistent one)."""
+    global _context
+    team_mtime, generation = _team_mtime(), _context_generation
+    team_stats = await load_team_stats(db)
+    games = await load_games(db)
+    if team_stats.empty or games.empty:
+        raise LookupError("No team stats or games in the DB to predict from")
+    goalies = await load_goalie_logs(db)
+    # lineups only need this season's games; player ratings come from the saved team model
+    skaters = await load_skater_logs(db, seasons=[int(games["season"].max())])
+    rosters = await load_current_rosters(db)
+    odds = await load_game_odds(db)
+    # the Elo loop, starter guesses and groupbys take a moment, so keep them off the event loop
+    known_starters = await load_known_starters(db)
+    injuries = await _load_injuries(db)
+    built = await asyncio.to_thread(_build_context, team_stats, games, goalies, skaters, rosters, odds, team_mtime,
+                                    known_starters=known_starters, injuries=injuries)
+    _context = {**built, "built_at": time.monotonic(), "team_mtime": team_mtime, "generation": generation}
+    return _context
+
+async def _background_rebuild() -> None:
+    global _context_failed_at
+    from app.database import AsyncSessionLocal
+    started = time.monotonic()
+    try:
+        async with _context_lock:
+            if not _context_stale():    # a forced rebuild finished while this one waited
+                return
+            async with AsyncSessionLocal() as db:
+                await _rebuild_context(db)
+        print(f"Team context rebuilt in the background in {time.monotonic() - started:.1f}s")
+    except Exception as e:
+        _context_failed_at = time.monotonic()
+        print(f"Team context background rebuild failed, serving the previous one: {e!r}")
+
+def _start_background_rebuild() -> None:
+    global _context_refresh
+    if _context_refresh is not None and not _context_refresh.done():
+        return
+    if time.monotonic() - _context_failed_at < CONTEXT_RETRY_SECONDS:
+        return
+    _context_refresh = asyncio.create_task(_background_rebuild())
+
 async def _team_context(db: AsyncSession) -> dict:
-    """Pre-game team features and win probabilities for every scheduled game, rebuilt at most every 10 minutes."""
-    async with _context_lock:   # concurrent cache misses wait for one rebuild instead of each doing it
-        team_mtime = TEAM_BUNDLE.stat().st_mtime if TEAM_BUNDLE.exists() else None
-        if time.monotonic() - _context["built_at"] < CONTEXT_TTL_SECONDS and _context.get("team_mtime") == team_mtime:
-            return _context
-        team_stats = await load_team_stats(db)
-        games = await load_games(db)
-        if team_stats.empty or games.empty:
-            raise LookupError("No team stats or games in the DB to predict from")
-        goalies = await load_goalie_logs(db)
-        # lineups only need this season's games; player ratings come from the saved team model
-        skaters = await load_skater_logs(db, seasons=[int(games["season"].max())])
-        rosters = await load_current_rosters(db)
-        odds = await load_game_odds(db)
-        # the Elo loop, starter guesses and groupbys take a moment, so keep them off the event loop
-        known_starters = await load_known_starters(db)
-        injuries = await _load_injuries(db)
-        built = await asyncio.to_thread(_build_context, team_stats, games, goalies, skaters, rosters, odds, team_mtime,
-                                        known_starters=known_starters, injuries=injuries)
-        _context.update(built, built_at=time.monotonic(), team_mtime=team_mtime)
+    """Pre-game team features and win probabilities for every scheduled game. Served from the cache, which is rebuilt
+    in the background once stale; built inline (concurrent callers waiting on one build) only when there is none."""
+    if "team_feats" in _context:
+        if _context_stale():
+            _start_background_rebuild()
         return _context
+    async with _context_lock:   # concurrent cache misses wait for one rebuild instead of each doing it
+        if "team_feats" in _context:
+            return _context
+        return await _rebuild_context(db)
+
+async def refresh_team_context(db: AsyncSession) -> dict:
+    """The context rebuilt now if it's stale, for jobs that must use data they just fetched."""
+    async with _context_lock:
+        if "team_feats" in _context and not _context_stale():
+            return _context
+        return await _rebuild_context(db)
+
+async def warm_team_context() -> None:
+    """Builds the context at startup so the first page view doesn't wait on it."""
+    from app.database import AsyncSessionLocal
+    started = time.monotonic()
+    try:
+        async with AsyncSessionLocal() as db:
+            await refresh_team_context(db)
+        print(f"Team context warmed in {time.monotonic() - started:.1f}s")
+    except Exception as e:
+        print(f"Team context warm-up failed (built on first use instead): {e!r}")
 
 def _upcoming_player_rows(logs: pd.DataFrame, game, team: str, placeholders: pd.DataFrame) -> pd.DataFrame:
     """The target game plus any of the team's finished-but-unscraped games since the player's last log,
