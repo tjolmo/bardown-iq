@@ -180,7 +180,7 @@ async def scrape_team_stats(seasons: list[int] | None = None):
 
 async def fetch_current_scores():
     async with AsyncSessionLocal() as db:
-        # the job fires every 10 minutes, but only hit the NHL API around games
+        # the job fires every LIVE_SCORES_POLL_MINUTES, but only hit the NHL API around games
         if not await has_games_to_poll(db):
             return
         tri_codes = set(await get_all_tri_codes_in_db(db))

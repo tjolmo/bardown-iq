@@ -55,6 +55,7 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN}
       # set DEV_SCHEDULER_ENABLED=1 in .env to run the jobs here instead of in the forward container (never both)
       SCHEDULER_ENABLED: ${DEV_SCHEDULER_ENABLED:-0}
+      LIVE_SCORES_POLL_MINUTES: ${LIVE_SCORES_POLL_MINUTES:-10}
       TRAIN_SCHEDULE: ${DEV_TRAIN_SCHEDULE:-off}
 
   # dev site (http://localhost:5174)
@@ -92,6 +93,7 @@ services:
       PROPLINE_API_KEY: ${PROPLINE_API_KEY}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
       SCHEDULER_ENABLED: "1"
+      LIVE_SCORES_POLL_MINUTES: ${LIVE_SCORES_POLL_MINUTES:-10}
       TRAIN_SCHEDULE: weekly
       TRAIN_WEEKDAY: "0"
 

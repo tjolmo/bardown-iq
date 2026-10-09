@@ -1,4 +1,5 @@
-from external.nhl.games import get_odds_for_current_games
+from external.nhl.games import get_odds_for_current_games, get_live_statuses
+from app.game_board import needs_live_status, live_out, game_edge
 from app.crud.game_line_quotes import get_moneylines
 from predictions.predict import get_upcoming_game_prediction
 from app.crud.teams import search_teams_by_name
@@ -110,6 +111,8 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
         return []
     # PropLine's lines for any date it priced; NHL's partner feed (today only) fills the gaps
     moneyline_odds = await moneylines_for(db, [g.id for g in games], nhl_fallback=int_date == today_int_date)
+    # period, clock and intermission of today's games under way, and their score fresher than the stored one
+    live_statuses = await get_live_statuses() if int_date == today_int_date and needs_live_status(games) else {}
     for i, game in enumerate(games):
         try: 
             home_team = await get_team_by_tri_code(db, game.home_team_tri_code)
@@ -125,6 +128,7 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
         except Exception as e:
             return HTTPException(status_code=500, detail=f"Error fetching team info for game {game.id}: {e}")
 
+        prob_home_win = prob_away_win = None
         # get predictions for future games
         if int_date >= today_int_date: 
             prediction = await get_upcoming_game_prediction(game, db)
@@ -135,6 +139,7 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
                 prob_home_win, prob_away_win = prediction
 
 
+        status = live_statuses.get(game.id)
         game_info = TeamScheduledGameInfoOut(
             id=game.id,
             date=datetime.datetime.strptime(str(game.date), "%Y%m%d").strftime("%B %d, %Y") if game.date else None,
@@ -142,15 +147,18 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
             awayTeam=awayTeam,
             time=game.start_time,
             venue=game.venue,
-            awayScore=game.away_score,
-            homeScore=game.home_score,
-            gameState=game.game_state,
+            awayScore=status.away_score if status and status.away_score is not None else game.away_score,
+            homeScore=status.home_score if status and status.home_score is not None else game.home_score,
+            gameState=status.game_state if status else game.game_state,
             predictions=TeamGamePredictionOut(
                 home=TeamSidePrediction(tri_code=game.home_team_tri_code, prob_win=prob_home_win),
                 away=TeamSidePrediction(tri_code=game.away_team_tri_code, prob_win=prob_away_win)
                 ) if int_date >= today_int_date else None,
             moneyline=moneyline_odds.get(game.id),
-            isNextGame=False
+            isNextGame=False,
+            live=live_out(status),
+            edge=game_edge(game.home_team_tri_code, game.away_team_tri_code, prob_home_win, prob_away_win,
+                           moneyline_odds.get(game.id)),
         )
         cleaned_games.append(game_info)
     if len(cleaned_games) == 0:

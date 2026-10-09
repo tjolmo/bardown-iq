@@ -123,6 +123,19 @@ class GameOdds(BaseModel):
     home_moneyline: float
     away_moneyline: float
 
+class GameLiveStatus(BaseModel):
+    """A started game's state, score, period and clock from NHL's score/now (not stored: it changes by the minute)."""
+    game_id: int
+    game_state: str                       # LIVE / CRIT / FINAL / OFF
+    home_score: int | None = None
+    away_score: int | None = None
+    period: int | None = None             # 1-3 regulation, 4+ overtime (and 5 the shootout in the regular season)
+    period_type: str | None = None        # REG / OT / SO
+    seconds_remaining: int | None = None  # of the period, or of the intermission when in_intermission
+    in_intermission: bool = False
+    clock_running: bool = False
+    as_of: datetime.datetime              # when the feed was fetched
+
 class GameGoalie(BaseModel):
     """A goalie on one team's roster for a game (from gamecenter landing / play-by-play)."""
     player_id: int
