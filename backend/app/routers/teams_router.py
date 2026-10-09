@@ -1,5 +1,6 @@
 from external.nhl.games import get_odds_for_current_games, get_live_statuses
-from app.game_board import needs_live_status, live_out, game_edge
+from app.game_board import needs_live_status, live_out, game_edge, has_started
+from app.crud.prediction_log import get_pregame_home_win_probs
 from app.crud.game_line_quotes import get_moneylines
 from predictions.predict import get_upcoming_game_prediction
 from app.crud.teams import search_teams_by_name
@@ -113,6 +114,8 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
     moneyline_odds = await moneylines_for(db, [g.id for g in games], nhl_fallback=int_date == today_int_date)
     # period, clock and intermission of today's games under way, and their score fresher than the stored one
     live_statuses = await get_live_statuses() if int_date == today_int_date and needs_live_status(games) else {}
+    # the model's frozen pre-game call for games under way or over (the live prediction covers unstarted games only)
+    logged_home_probs = await get_pregame_home_win_probs(db, [g.id for g in games])
     for i, game in enumerate(games):
         try: 
             home_team = await get_team_by_tri_code(db, game.home_team_tri_code)
@@ -128,18 +131,22 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
         except Exception as e:
             return HTTPException(status_code=500, detail=f"Error fetching team info for game {game.id}: {e}")
 
-        prob_home_win = prob_away_win = None
-        # get predictions for future games
-        if int_date >= today_int_date: 
-            prediction = await get_upcoming_game_prediction(game, db)
-            if prediction is None:
-                prob_home_win = None
-                prob_away_win = None
-            else:
-                prob_home_win, prob_away_win = prediction
-
-
         status = live_statuses.get(game.id)
+        prob_home_win = prob_away_win = None
+        started = has_started(game, status)
+        # started and finished games: what the model logged before puck drop; unstarted ones: its current call
+        # (each falls back to the other: an unlogged game the cached prediction still holds, a stale log)
+        if started and game.id in logged_home_probs:
+            prob_home_win = logged_home_probs[game.id]
+            prob_away_win = 1.0 - prob_home_win
+        elif int_date >= today_int_date:
+            prediction = await get_upcoming_game_prediction(game, db)
+            if prediction is not None:
+                prob_home_win, prob_away_win = prediction
+        if prob_home_win is None and game.id in logged_home_probs:
+            prob_home_win = logged_home_probs[game.id]
+            prob_away_win = 1.0 - prob_home_win
+        has_prediction = prob_home_win is not None
         game_info = TeamScheduledGameInfoOut(
             id=game.id,
             date=datetime.datetime.strptime(str(game.date), "%Y%m%d").strftime("%B %d, %Y") if game.date else None,
@@ -153,7 +160,7 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
             predictions=TeamGamePredictionOut(
                 home=TeamSidePrediction(tri_code=game.home_team_tri_code, prob_win=prob_home_win),
                 away=TeamSidePrediction(tri_code=game.away_team_tri_code, prob_win=prob_away_win)
-                ) if int_date >= today_int_date else None,
+                ) if int_date >= today_int_date or has_prediction else None,
             moneyline=moneyline_odds.get(game.id),
             isNextGame=False,
             live=live_out(status),

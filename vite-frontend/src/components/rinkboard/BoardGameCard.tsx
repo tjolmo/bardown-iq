@@ -48,7 +48,7 @@ export const BoardGameCard: FC<BoardGameCardProps> = ({ game, coachsPick = false
         <RinkMeter away={awayProb} label={started ? "Pre-game model win %" : "Model win %"} />
       ) : (
         <p className="bd-label" style={{ margin: 0, textAlign: "center" }}>
-          No model odds for this game yet
+          {started ? "No pre-game prediction was logged for this game" : "No model odds for this game yet"}
         </p>
       )}
 

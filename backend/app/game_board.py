@@ -17,6 +17,16 @@ def needs_live_status(games, now: datetime.datetime | None = None) -> bool:
     return any(g.start_time is not None and g.start_time <= now + LIVE_LEAD_TIME for g in games)
 
 
+# NHL game states before puck drop; every other state (LIVE, CRIT, FINAL, OFF) means the game has started
+NOT_STARTED_STATES = ("FUT", "PRE")
+
+
+def has_started(game, status: GameLiveStatus | None = None) -> bool:
+    """True once the game is under way or over, by the score feed when it has the game, else the stored state."""
+    state = status.game_state if status is not None else game.game_state
+    return state not in NOT_STARTED_STATES
+
+
 def format_clock(seconds: int | None) -> str | None:
     if seconds is None:
         return None

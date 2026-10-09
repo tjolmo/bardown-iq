@@ -39,22 +39,30 @@ export interface StatusChipInfo {
   title?: string;
 }
 
-const ET_TIME = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+// times in the visitor's own time zone, named so it's clear: "7:00 PM PT" ("PDT" where the generic name isn't supported)
+const localTimeFormat = (): Intl.DateTimeFormat => {
+  try {
+    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZoneName: "shortGeneric" });
+  } catch {
+    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+  }
+};
+const LOCAL_TIME = localTimeFormat();
 
-export const puckDropET = (iso: string): string => `${ET_TIME.format(new Date(iso))} ET`;
+export const localTime = (iso: string): string => LOCAL_TIME.format(new Date(iso));
 
 /** What the card's status chip says: puck drop, the period and clock (or intermission time left), or FINAL. */
 export const statusChip = (game: TeamScheduledGame, receivedAt: number, now: number): StatusChipInfo => {
   const phase = gamePhase(game);
   const live = game.live ?? null;
-  if (phase === "pre") return { kind: "time", text: puckDropET(game.time) };
+  if (phase === "pre") return { kind: "time", text: localTime(game.time) };
   if (phase === "final") {
     const how = live?.periodType === "OT" || live?.periodType === "SO" ? `/${periodLabel(live.period, live.periodType)}` : "";
     return { kind: "final", text: `FINAL${how}` };
   }
   if (!live) return { kind: "live", text: "LIVE" };
   const period = periodLabel(live.period, live.periodType);
-  const asOf = `Clock as of ${ET_TIME.format(new Date(live.asOf))} ET`;
+  const asOf = `Clock as of ${localTime(live.asOf)}`;
   if (live.inIntermission) {
     const left = intermissionLeft(live, receivedAt, now);
     const name = period ? `${period} INT` : "INTERMISSION";
