@@ -1,16 +1,44 @@
-import { useParams } from "react-router-dom";
-import { Link } from "react-router-dom";
 import type { FC } from "react";
 import { useEffect, useRef } from "react";
-import { GameCard } from "../components/schedule/GameCard";
+import { Link, useParams } from "react-router-dom";
 import { useTeamNextFive } from "../hooks/useTeamNextFive";
-import type { TeamScheduledGame } from "../types/teams";
-import LoadingPage from "./LoadingPage";
-import ErrorPage from "./ErrorPage";
+import type { Team, TeamScheduledGame } from "../types/teams";
+import { daysBetween, splitTeamName } from "../utils/gameStatus";
+import { RinkHero } from "../components/rinkboard/RinkHero";
+import { BoardGameCard } from "../components/rinkboard/BoardGameCard";
+import { STRONG_EDGE_POINTS } from "../components/rinkboard/EdgeChip";
+import { StretchChart, type StretchGame } from "../components/rinkboard/StretchChart";
+import { ScheduleRow } from "../components/rinkboard/ScheduleRow";
+
+// how many games the stretch chart covers, starting with the next one
+const STRETCH_GAMES = 8;
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** "4 at home · 4 on the road · 2 back-to-backs" */
+const summary = (homeGames: number, roadGames: number, backToBacks: number): string =>
+  [
+    `${homeGames} at home`,
+    `${roadGames} on the road`,
+    backToBacks > 0 && plural(backToBacks, "back-to-back", "back-to-backs"),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+/** The coach's note on the stretch: the game the model likes the team least in, when it's an underdog there. */
+const toughestNote = (stretch: StretchGame[]): string | null => {
+  const priced = stretch.filter((g) => g.winProb !== null);
+  if (priced.length < 3) return null;
+  const worst = priced.reduce((a, b) => (b.winProb! < a.winProb! ? b : a));
+  if (worst.winProb! >= 0.5) return null;
+  const tag = worst.home ? `vs ${worst.game.awayTeam.tricode}` : `@ ${worst.game.homeTeam.tricode}`;
+  return `toughest one: ${tag}`;
+};
 
 export const TeamSchedulePage: FC = () => {
-  const { tricode } = useParams();
-  const { games, loading, loadingMore, hasMore, loadMore, error } = useTeamNextFive(tricode!);
+  const { tricode: param } = useParams();
+  const tricode = param!.toUpperCase();
+  const { games, loading, loadingMore, hasMore, loadMore, error } = useTeamNextFive(param!);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,80 +54,144 @@ export const TeamSchedulePage: FC = () => {
     return () => observer.disconnect();
   }, [loadMore]);
 
-  if (error) return <ErrorPage message="Error loading team schedule data." />;
-  if (loading) return <LoadingPage />;
+  const isHome = (g: TeamScheduledGame) => g.homeTeam.tricode === tricode;
+  const first = games[0];
+  const team: Team | null = first ? (isHome(first) ? first.homeTeam : first.awayTeam) : null;
+  const { city, nickname } = team ? splitTeamName(team.name) : { city: "", nickname: tricode };
 
-  const nextGameDate = games.find((g: TeamScheduledGame) => g.isNextGame)?.date;
+  // a back-to-back: the day after the team's previous game (unknown for the first game loaded)
+  const backToBack = games.map((g, i) => i > 0 && daysBetween(games[i - 1].time, g.time) === 1);
+  const homeGames = games.filter(isHome).length;
+
+  const stretch: StretchGame[] = games.slice(0, STRETCH_GAMES).map((game) => {
+    const home = isHome(game);
+    const side = home ? game.predictions?.home : game.predictions?.away;
+    return { game, home, winProb: side?.prob_win ?? null };
+  });
+  const coachsPick = !!first?.edge && first.edge.points >= STRONG_EDGE_POINTS;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-100 font-sans p-4 sm:p-6 lg:p-10">
-      <div className="fixed top-0 right-0 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="fixed bottom-0 left-0 w-64 h-64 bg-indigo-400/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="relative max-w-2xl mx-auto space-y-4">
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/60 overflow-hidden">
-          <div className="h-20 bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 relative">
-            <div
-              className="absolute inset-0 opacity-20"
-              style={{
-                backgroundImage:
-                  "repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,.15) 10px, rgba(255,255,255,.15) 11px)",
-              }}
-            />
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <h1 className="text-white font-black text-2xl tracking-tight drop-shadow">
-                Upcoming Schedule for {tricode}
-              </h1>
-              {nextGameDate && (
-                <p className="text-blue-200 text-xs font-semibold mt-0.5">
-                  Next game · {nextGameDate}
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="grid grid-cols-4 divide-x divide-slate-100 bg-slate-50 rounded-b-3xl">
-            {[
-              { label: "Games", value: games.length },
-              { label: "Home", value: games.filter((g: TeamScheduledGame) => g.homeTeam.tricode === tricode).length },
-              { label: "Away", value: games.filter((g: TeamScheduledGame) => g.awayTeam.tricode === tricode).length },
-            ].map((s) => (
-              <div key={s.label} className="py-3 text-center">
-                <p className="text-lg font-black text-slate-800">{s.value}</p>
-                <p className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
-                  {s.label}
-                </p>
+    <div className="bd-page">
+      <main className="bd-main">
+        <RinkHero
+          labelledBy="team-title"
+          left={
+            <>
+              <div className="bd-row" style={{ gap: 8 }}>
+                <Link to="/teams" className="bd-icon-btn" aria-label="All teams">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+                    <path d="M15 5l-7 7 7 7" />
+                  </svg>
+                </Link>
+                <span className="bd-muted" style={{ fontWeight: 700 }}>
+                  Schedule{city && ` · ${city}`}
+                </span>
               </div>
-            ))}
-            <Link
-              to={`/roster/${tricode}`}
-              className="py-3 text-center flex flex-col items-center justify-center hover:bg-blue-50 transition-colors group"
-            >
-              <p className="text-lg font-black text-blue-600 group-hover:text-blue-700">→</p>
-              <p className="text-[10px] font-semibold tracking-wider text-blue-500 uppercase">
+              <div className="bd-row" style={{ gap: 16 }}>
+                {team && <img className="bd-team-logo" src={team.logoUrl} alt={team.name} />}
+                <h1 id="team-title" className="bd-display-xl">
+                  {nickname.split(" ").map((word, i) => (
+                    <span key={i}>
+                      {i > 0 && <br />}
+                      {word}
+                    </span>
+                  ))}
+                </h1>
+              </div>
+            </>
+          }
+          right={
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+              {games.length > 0 ? (
+                <>
+                  <span className="bd-display-xl" style={{ textTransform: "none" }}>
+                    {plural(games.length, "game", "games")}
+                  </span>
+                  <span className="bd-muted" style={{ fontWeight: 600 }}>
+                    {summary(homeGames, games.length - homeGames, backToBack.filter(Boolean).length)}
+                  </span>
+                </>
+              ) : (
+                <span className="bd-muted" style={{ fontWeight: 600 }}>
+                  {loading ? "Setting up the schedule" : ""}
+                </span>
+              )}
+              <Link to={`/roster/${tricode}`} className="bd-btn" style={{ marginTop: 6 }}>
                 Roster
-              </p>
-            </Link>
-          </div>
-        </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+                  <path d="M9 5l7 7-7 7" />
+                </svg>
+              </Link>
+            </div>
+          }
+        />
 
-        {games.map((game: TeamScheduledGame, i: number) => (
-          <GameCard key={game.id} game={game} index={i} />
-        ))}
+        {loading ? (
+          <p className="bd-empty" role="status">Loading the schedule</p>
+        ) : error && games.length === 0 ? (
+          <p className="bd-empty" role="alert">The schedule didn't load. Check that the API is up, then refresh the page.</p>
+        ) : games.length === 0 ? (
+          <p className="bd-empty">No games left on the schedule.</p>
+        ) : (
+          <>
+            <section className="bd-section" aria-labelledby="next-heading">
+              <div className="bd-section-head">
+                <h2 id="next-heading" className="bd-heading">
+                  Next up
+                </h2>
+                <div className="bd-legend">
+                  <span>
+                    <i className="bd-swatch" style={{ background: "var(--blue-line)" }} />
+                    Away
+                  </span>
+                  <span>
+                    <i className="bd-swatch" style={{ background: "var(--goal-red)" }} />
+                    Home
+                  </span>
+                  <span>
+                    <i className="bd-swatch" style={{ background: "var(--ink)", borderRadius: "50%" }} />
+                    Puck sits at the model's win %
+                  </span>
+                </div>
+              </div>
+              <div className="bd-grid">
+                <BoardGameCard game={first} coachsPick={coachsPick} showDate receivedAt={0} now={0} />
+                <StretchChart teamName={nickname} games={stretch} note={toughestNote(stretch)} />
+              </div>
+            </section>
 
-        {hasMore && <div ref={sentinelRef} className="h-1" />}
-
-        {loadingMore && (
-          <div className="flex justify-center py-6">
-            <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-          </div>
+            {games.length > 1 && (
+              <section className="bd-section" aria-labelledby="ahead-heading">
+                <div className="bd-section-head">
+                  <h2 id="ahead-heading" className="bd-heading">
+                    The road ahead
+                  </h2>
+                  <span className="bd-muted" style={{ fontSize: 13 }}>
+                    Times in your time zone. Odds firm up as puck drop gets closer.
+                  </span>
+                </div>
+                <ol className="bd-sched">
+                  {games.slice(1).map((game, i) => (
+                    <ScheduleRow key={game.id} game={game} home={isHome(game)} backToBack={backToBack[i + 1]} />
+                  ))}
+                </ol>
+                {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+                <p className="bd-label bd-sched-more" role="status">
+                  {loadingMore
+                    ? "Loading more games"
+                    : error
+                      ? "More games didn't load. Refresh the page to try again."
+                      : hasMore
+                        ? "More games load as you scroll"
+                        : "That's the rest of the schedule"}
+                </p>
+              </section>
+            )}
+          </>
         )}
-
-        {!hasMore && games.length > 0 && (
-          <p className="text-center text-slate-400 text-sm py-4">All Future Games Loaded</p>
-        )}
-      </div>
+      </main>
     </div>
   );
 };
 
 export default TeamSchedulePage;
-

@@ -1,6 +1,6 @@
 import type { FC } from "react";
 import type { TeamScheduledGame } from "../../types/teams";
-import { formatAmerican, gamePhase, statusChip } from "../../utils/gameStatus";
+import { formatAmerican, gamePhase, shortDay, statusChip } from "../../utils/gameStatus";
 import { StatusChip } from "./StatusChip";
 import { TeamMark } from "./TeamMark";
 import { RinkMeter } from "./RinkMeter";
@@ -10,14 +10,18 @@ interface BoardGameCardProps {
   game: TeamScheduledGame;
   // the day's single best pick gets the coach's ring
   coachsPick?: boolean;
+  // the puck-drop chip also names the day, for a card off the day's board
+  showDate?: boolean;
   // when the games were fetched and the current time (ms), for the intermission countdown
   receivedAt: number;
   now: number;
 }
 
 /** One game on the board: status, both teams, score or AT, the model's odds, the Vegas line and the edge. */
-export const BoardGameCard: FC<BoardGameCardProps> = ({ game, coachsPick = false, receivedAt, now }) => {
+export const BoardGameCard: FC<BoardGameCardProps> = ({ game, coachsPick = false, showDate = false, receivedAt, now }) => {
   const phase = gamePhase(game);
+  const status = statusChip(game, receivedAt, now);
+  const chip = showDate && status.kind === "time" ? { ...status, text: `${shortDay(game.time)} · ${status.text}` } : status;
   const started = phase !== "pre";
   const hasScore = started && game.awayScore !== null && game.homeScore !== null;
   const awayProb = game.predictions?.away.prob_win ?? null;
@@ -26,7 +30,7 @@ export const BoardGameCard: FC<BoardGameCardProps> = ({ game, coachsPick = false
   return (
     <article className="bd-card" aria-label={`${game.awayTeam.name} at ${game.homeTeam.name}`}>
       <div className="bd-card-top">
-        <StatusChip status={statusChip(game, receivedAt, now)} />
+        <StatusChip status={chip} />
         <span>{game.venue}</span>
       </div>
 

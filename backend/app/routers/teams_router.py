@@ -98,7 +98,9 @@ async def get_team_next_5_games(tri_code: str, offset: int, db = Depends(get_db)
                     away=TeamSidePrediction(tri_code=game.away_team_tri_code, prob_win=prob_away_win),
                 ),
                 moneyline=moneyline_odds.get(game.id),
-                isNextGame=True if i == 0 else False
+                isNextGame=True if i == 0 and offset == 0 else False,
+                edge=game_edge(game.home_team_tri_code, game.away_team_tri_code, prob_home_win, prob_away_win,
+                               moneyline_odds.get(game.id)),
             )
             next_5_cleaned.append(game_info)
         return next_5_cleaned

@@ -12,6 +12,14 @@ const TABS = [
 // any day's board counts as "Tonight" in the nav; a team's schedule doesn't
 const isBoard = (path: string) => path.startsWith("/schedule/") && !path.startsWith("/schedule/team/");
 
+// a team's schedule sits under Teams
+const isCurrent = (to: string, path: string) =>
+  to === "/schedule/today"
+    ? isBoard(path)
+    : to === "/teams"
+      ? path.startsWith("/teams") || path.startsWith("/schedule/team/")
+      : path.startsWith(to);
+
 export default function Navbar() {
   const { pathname } = useLocation();
 
@@ -27,7 +35,7 @@ export default function Navbar() {
               key={tab.to}
               to={tab.to}
               className="bd-nav-link"
-              aria-current={(tab.to === "/schedule/today" ? isBoard(pathname) : pathname.startsWith(tab.to)) ? "page" : undefined}
+              aria-current={isCurrent(tab.to, pathname) ? "page" : undefined}
             >
               {tab.label}
             </Link>

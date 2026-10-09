@@ -153,3 +153,36 @@
   .bd-heading { font-size: 30px; }
   .bd-card { padding: var(--space-5); }
 }
+
+/* Team schedule: the next game beside the stretch chart, then one row per game */
+.bd-meter-labels-sm { font-size: 15px; }
+.bd-btn { display: inline-flex; align-items: center; gap: var(--space-2); height: 44px; padding: 0 18px; border: var(--border-strong) solid var(--ink); border-radius: var(--radius-pill); background: var(--boards); font-weight: 800; box-sizing: border-box; }
+.bd-page a.bd-btn:hover { background: var(--ink); color: var(--on-ink); }
+.bd-chip-quiet { background: var(--chip-quiet); color: var(--ink-muted); }
+.bd-chart { position: relative; height: 210px; padding-top: var(--space-2); border-bottom: var(--border-strong) solid var(--ink); box-sizing: border-box; }
+.bd-chart-mid { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--line-dashed); }
+.bd-chart-mid span { position: absolute; left: 0; bottom: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; color: var(--ink-subtle); }
+.bd-chart-cols, .bd-chart-ticks { display: flex; gap: 10px; padding-left: 36px; }
+.bd-chart-cols { position: relative; height: 100%; align-items: flex-end; box-sizing: border-box; }
+.bd-chart-col { flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.bd-chart-bar { width: 100%; max-width: 40px; border-radius: 4px 4px 0 0; }
+.bd-chart-ticks { margin-top: var(--space-2); }
+.bd-chart-ticks > span { flex: 1 1 0; min-width: 0; text-align: center; font-size: 12px; line-height: 1.3; color: var(--ink-muted); }
+.bd-chart-ticks strong { display: block; color: var(--ink); }
+.bd-sched { list-style: none; margin: 0; padding: 0; background: var(--boards); border: var(--border-strong) solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
+.bd-sched-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4) var(--space-8); padding: var(--space-5) var(--space-6); border-top: 1px dashed var(--line-dashed); }
+.bd-sched-row:first-child { border-top: 0; }
+.bd-sched-date { flex: 0 0 64px; display: flex; flex-direction: column; align-items: center; line-height: 1; }
+.bd-sched-date .bd-score { font-size: 36px; }
+.bd-sched-opp { flex: 1 1 200px; min-width: 0; display: flex; align-items: center; gap: 14px; }
+.bd-sched-opp img { width: 56px; height: 56px; object-fit: contain; flex: none; }
+.bd-sched-opp .bd-team-name { font-size: 22px; }
+.bd-sched-status { flex: 0 0 140px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.bd-sched-meter { flex: 1 1 240px; min-width: 200px; }
+.bd-sched-line { flex: 0 1 230px; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); font-size: 14px; color: var(--ink-muted); }
+.bd-sched-line strong { color: var(--ink); }
+.bd-sched-more { margin: 0; text-align: center; }
+@media (max-width: 680px) {
+  .bd-sched-row { gap: var(--space-4) var(--space-5); padding: var(--space-5) var(--space-4); }
+  .bd-sched-status { flex-direction: row; flex-wrap: wrap; flex-basis: 100%; }
+}

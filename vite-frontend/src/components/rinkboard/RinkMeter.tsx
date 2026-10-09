@@ -4,10 +4,12 @@ interface RinkMeterProps {
   // the away side's win probability, 0-1
   away: number;
   label: string;
+  // the sides' tricodes beside their percentages, where no team marks sit above the meter
+  tricodes?: { away: string; home: string };
 }
 
 /** A small rink: away's share of the ice on the left, home's on the right, the puck at the away win %. */
-export const RinkMeter: FC<RinkMeterProps> = ({ away, label }) => {
+export const RinkMeter: FC<RinkMeterProps> = ({ away, label, tricodes }) => {
   const awayPct = Math.round(away * 100);
   const homePct = 100 - awayPct;
   return (
@@ -24,10 +26,10 @@ export const RinkMeter: FC<RinkMeterProps> = ({ away, label }) => {
         <i className="bd-meter-blue" style={{ left: "67%" }} />
         <i className="bd-meter-puck" style={{ left: `${awayPct}%` }} />
       </div>
-      <div className="bd-meter-labels" aria-hidden="true">
-        <span className="bd-away">{awayPct}%</span>
+      <div className={`bd-meter-labels${tricodes ? " bd-meter-labels-sm" : ""}`} aria-hidden="true">
+        <span className="bd-away">{tricodes && `${tricodes.away} `}{awayPct}%</span>
         <span className="bd-label">{label}</span>
-        <span className="bd-home">{homePct}%</span>
+        <span className="bd-home">{tricodes && `${tricodes.home} `}{homePct}%</span>
       </div>
     </div>
   );
