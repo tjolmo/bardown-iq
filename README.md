@@ -54,6 +54,7 @@ A code rebuild keeps the bundles in the volume, so `model_version` only changes 
 | `TRAIN_SCHEDULE` | `weekly` | When the 03:00 UTC nightly run retrains: `weekly` (on `TRAIN_WEEKDAY`, 0 = Monday), `nightly`, `off`. Features still update from the fresh logs every night; only the fitted weights wait |
 | `TRAIN_ON_STARTUP` | unset | `always` forces training at startup. Otherwise startup trains only when a model bundle is missing, so a restart never starts a new `model_version` |
 | `GIT_COMMIT` | `unknown` | Build arg of the backend image, printed at startup |
+| `LIVE_SCORES_POLL_MINUTES` | `10` | How often the NHL score feed is polled while games are under way: the live-scores job, and how long the site reuses the feed for the period, clock and intermission time on today's games (the intermission countdown runs between polls; the game clock shows as of the last poll). The forward container picks it up after its next rebuild |
 
 ## Scheduled jobs (all times UTC)
 
@@ -62,7 +63,7 @@ A code rebuild keeps the bundles in the volume, so `model_version` only changes 
 | 03:00 | nightly | schedules, rosters, MoneyPuck player logs and team stats, skater shares, last night's actual starters, ESPN odds and prop odds, scoring of yesterday's logged predictions, PropLine props, training (per `TRAIN_SCHEDULE`) |
 | 15:00 | morning | injury report, ESPN odds and prop odds, PropLine props, edge board |
 | 21:00 and 22:00 | pregame | starting goalies, injury report, ESPN odds and prop odds, PropLine props, **prediction log**, edge board |
-| every 10 min | live scores | |
+| every 10 min (`LIVE_SCORES_POLL_MINUTES`) | live scores | only while a game is about to start or under way |
 | every 30 min | game lines | one bulk PropLine request for the site's moneylines |
 
 A container that starts between 21:00 and 06:00 UTC runs the pregame pipeline first, so a late start still logs

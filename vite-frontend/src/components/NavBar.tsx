@@ -1,35 +1,48 @@
-import { NavLink } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import SearchBar from "./SearchBar";
 
 const TABS = [
-  { to: "/schedule/today", label: "Today's Games", icon: "📅" },
-  { to: "/teams", label: "Teams", icon: "🏒" },
-  { to: "/top-players/skaters/current/50", label: "Top Skaters", icon: "🏒" },
-  { to: "/top-players/goalies/current/30", label: "Top Goalies", icon: "🧤" },
-  { to: "/edges", label: "Players with Edge", icon: "📈" },
+  { to: "/schedule/today", label: "Tonight" },
+  { to: "/teams", label: "Teams" },
+  { to: "/top-players/skaters/current/50", label: "Top Skaters" },
+  { to: "/top-players/goalies/current/30", label: "Top Goalies" },
+  { to: "/edges", label: "Edges" },
 ];
 
+// any day's board counts as "Tonight" in the nav; a team's schedule doesn't
+const isBoard = (path: string) => path.startsWith("/schedule/") && !path.startsWith("/schedule/team/");
+
+// a team's schedule sits under Teams
+const isCurrent = (to: string, path: string) =>
+  to === "/schedule/today"
+    ? isBoard(path)
+    : to === "/teams"
+      ? path.startsWith("/teams") || path.startsWith("/schedule/team/")
+      : path.startsWith(to);
+
 export default function Navbar() {
+  const { pathname } = useLocation();
+
   return (
-    <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-100 shadow-sm shadow-slate-200/50">
-      <div className="max-w-5xl mx-auto px-4 flex items-center gap-1 h-14 overflow-x-auto">
-        {TABS.map((tab) => (
-          <NavLink
-            key={tab.to}
-            to={tab.to}
-            className={({ isActive }) =>
-              `flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-2 rounded-xl text-sm font-bold transition-all ${isActive
-                ? "bg-blue-600 text-white shadow-md shadow-blue-200"
-                : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
-              }`
-            }
-          >
-            <span>{tab.icon}</span>
-            <span>{tab.label}</span>
-          </NavLink>
-        ))}
+    <header className="bd-nav">
+      <div className="bd-nav-inner">
+        <Link to="/schedule/today" className="bd-wordmark" aria-label="BarDown IQ home">
+          BarDown <span className="bd-wordmark-iq">IQ</span>
+        </Link>
+        <nav className="bd-nav-links" aria-label="Main">
+          {TABS.map((tab) => (
+            <Link
+              key={tab.to}
+              to={tab.to}
+              className="bd-nav-link"
+              aria-current={isCurrent(tab.to, pathname) ? "page" : undefined}
+            >
+              {tab.label}
+            </Link>
+          ))}
+        </nav>
         <SearchBar />
       </div>
-    </nav>
+    </header>
   );
 }

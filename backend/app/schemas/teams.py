@@ -20,6 +20,22 @@ class TeamBasicInfoOut(BaseModel):
     tricode: str
     logoUrl: str | None
 
+class TeamGameLiveOut(BaseModel):
+    """A started game's period and clock, from NHL's score feed (polled every LIVE_SCORES_POLL_MINUTES)"""
+    period: int | None = None
+    periodType: str | None = None        # REG / OT / SO
+    secondsRemaining: int | None = None  # of the period, or of the intermission when inIntermission
+    timeRemaining: str | None = None     # secondsRemaining as "MM:SS"
+    inIntermission: bool = False
+    clockRunning: bool = False
+    asOf: datetime.datetime              # when the feed was fetched; the game clock is as of then
+
+class TeamGameEdgeOut(BaseModel):
+    """The side the model likes against the market: model win probability minus the no-vig moneyline probability"""
+    tri_code: str
+    side: str        # home / away
+    points: float    # percentage points, one decimal
+
 class TeamScheduledGameInfoOut(BaseModel):
     """Output model for a team's upcoming game info"""
     id: int
@@ -34,6 +50,8 @@ class TeamScheduledGameInfoOut(BaseModel):
     predictions: TeamGamePredictionOut | None
     moneyline: TeamMoneylineOut | None
     isNextGame: bool
+    live: TeamGameLiveOut | None = None
+    edge: TeamGameEdgeOut | None = None
 
 class TeamRosteredPlayer(BaseModel):
     """Output model for a player on a team's roster"""
@@ -64,7 +82,8 @@ class TeamGamePredictionOut(BaseModel):
 
 class TeamMoneylineOut(BaseModel):
     """Output model for a game's moneyline (both teams): the median price of PropLine's consensus books, with the
-    best price per side among those books. NHL's partner feed (one book, no best price) is the fallback."""
+    best price per side among those books. NHL's partner feed (one book, no best price) is the fallback. A game that
+    has started shows ESPN's pregame close instead (source "espn", no best price)."""
     home: int
     away: int
     best_home: int | None = None

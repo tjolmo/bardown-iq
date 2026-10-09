@@ -1,5 +1,8 @@
-from external.nhl.games import get_odds_for_current_games
+from external.nhl.games import get_odds_for_current_games, get_live_statuses
+from app.game_board import needs_live_status, live_out, game_edge, has_started
+from app.crud.prediction_log import get_pregame_home_win_probs
 from app.crud.game_line_quotes import get_moneylines
+from app.crud.odds_snapshots import closing_game_snapshots
 from predictions.predict import get_upcoming_game_prediction
 from app.crud.teams import search_teams_by_name
 from app.schedules import current_game_day
@@ -15,12 +18,23 @@ from app.schemas.teams import TeamBasicInfoOut, Last5GameInfoOut, TeamScheduledG
 router = APIRouter(prefix="/teams", tags=["teams"])
 
 
-async def moneylines_for(db, game_ids: list[int], nhl_fallback: bool) -> dict[int, TeamMoneylineOut]:
-    """game_id -> moneyline: PropLine's books (game_line_quotes), else NHL's partner feed for today's games."""
-    out = {gid: TeamMoneylineOut(**m) for gid, m in (await get_moneylines(db, game_ids)).items()}
-    if nhl_fallback and len(out) < len(game_ids):
+async def moneylines_for(db, games, nhl_fallback: bool, live_statuses: dict | None = None) -> dict[int, TeamMoneylineOut]:
+    """game_id -> moneyline. Started and finished games: ESPN's close (closing_game_snapshots, never an in-game
+    price), else PropLine's last quote. Upcoming games: PropLine's books (game_line_quotes), else NHL's partner feed
+    for today's games."""
+    live_statuses = live_statuses or {}
+    game_ids = [g.id for g in games]
+    started = {g.id for g in games if has_started(g, live_statuses.get(g.id))}
+    out = {}
+    for gid, snap in (await closing_game_snapshots(db, [gid for gid in game_ids if gid in started])).items():
+        if snap.home_moneyline is not None and snap.away_moneyline is not None:
+            out[gid] = TeamMoneylineOut(home=round(snap.home_moneyline), away=round(snap.away_moneyline), source="espn")
+    for gid, m in (await get_moneylines(db, [gid for gid in game_ids if gid not in out])).items():
+        out[gid] = TeamMoneylineOut(**m)
+    upcoming = {gid for gid in game_ids if gid not in started}
+    if nhl_fallback and upcoming - out.keys():
         for odd in await get_odds_for_current_games() or []:
-            if odd.game_id in game_ids and odd.game_id not in out:
+            if odd.game_id in upcoming and odd.game_id not in out:
                 out[odd.game_id] = TeamMoneylineOut(home=odd.home_moneyline, away=odd.away_moneyline, source="nhl")
     return out
 
@@ -50,7 +64,7 @@ async def get_team_next_5_games(tri_code: str, offset: int, db = Depends(get_db)
     next_5_games = await get_next_n_games_info_by_tri_code(db, tri_code, 5, offset)
     next_5_cleaned = []
     if next_5_games is not None:
-        moneyline_odds = await moneylines_for(db, [g.id for g in next_5_games], nhl_fallback=True)
+        moneyline_odds = await moneylines_for(db, next_5_games, nhl_fallback=True)
         for i, game in enumerate(next_5_games):
             try: 
                 home_team = await get_team_by_tri_code(db, game.home_team_tri_code)
@@ -84,7 +98,9 @@ async def get_team_next_5_games(tri_code: str, offset: int, db = Depends(get_db)
                     away=TeamSidePrediction(tri_code=game.away_team_tri_code, prob_win=prob_away_win),
                 ),
                 moneyline=moneyline_odds.get(game.id),
-                isNextGame=True if i == 0 else False
+                isNextGame=True if i == 0 and offset == 0 else False,
+                edge=game_edge(game.home_team_tri_code, game.away_team_tri_code, prob_home_win, prob_away_win,
+                               moneyline_odds.get(game.id)),
             )
             next_5_cleaned.append(game_info)
         return next_5_cleaned
@@ -108,8 +124,12 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
 
     if games is None or len(games) == 0:
         return []
-    # PropLine's lines for any date it priced; NHL's partner feed (today only) fills the gaps
-    moneyline_odds = await moneylines_for(db, [g.id for g in games], nhl_fallback=int_date == today_int_date)
+    # period, clock and intermission of today's games under way, and their score fresher than the stored one
+    live_statuses = await get_live_statuses() if int_date == today_int_date and needs_live_status(games) else {}
+    # ESPN's close for games under way or over; PropLine's lines for any date it priced; NHL's partner feed (today only)
+    moneyline_odds = await moneylines_for(db, games, nhl_fallback=int_date == today_int_date, live_statuses=live_statuses)
+    # the model's frozen pre-game call for games under way or over (the live prediction covers unstarted games only)
+    logged_home_probs = await get_pregame_home_win_probs(db, [g.id for g in games])
     for i, game in enumerate(games):
         try: 
             home_team = await get_team_by_tri_code(db, game.home_team_tri_code)
@@ -125,16 +145,22 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
         except Exception as e:
             return HTTPException(status_code=500, detail=f"Error fetching team info for game {game.id}: {e}")
 
-        # get predictions for future games
-        if int_date >= today_int_date: 
+        status = live_statuses.get(game.id)
+        prob_home_win = prob_away_win = None
+        started = has_started(game, status)
+        # started and finished games: what the model logged before puck drop; unstarted ones: its current call
+        # (each falls back to the other: an unlogged game the cached prediction still holds, a stale log)
+        if started and game.id in logged_home_probs:
+            prob_home_win = logged_home_probs[game.id]
+            prob_away_win = 1.0 - prob_home_win
+        elif int_date >= today_int_date:
             prediction = await get_upcoming_game_prediction(game, db)
-            if prediction is None:
-                prob_home_win = None
-                prob_away_win = None
-            else:
+            if prediction is not None:
                 prob_home_win, prob_away_win = prediction
-
-
+        if prob_home_win is None and game.id in logged_home_probs:
+            prob_home_win = logged_home_probs[game.id]
+            prob_away_win = 1.0 - prob_home_win
+        has_prediction = prob_home_win is not None
         game_info = TeamScheduledGameInfoOut(
             id=game.id,
             date=datetime.datetime.strptime(str(game.date), "%Y%m%d").strftime("%B %d, %Y") if game.date else None,
@@ -142,15 +168,18 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
             awayTeam=awayTeam,
             time=game.start_time,
             venue=game.venue,
-            awayScore=game.away_score,
-            homeScore=game.home_score,
-            gameState=game.game_state,
+            awayScore=status.away_score if status and status.away_score is not None else game.away_score,
+            homeScore=status.home_score if status and status.home_score is not None else game.home_score,
+            gameState=status.game_state if status else game.game_state,
             predictions=TeamGamePredictionOut(
                 home=TeamSidePrediction(tri_code=game.home_team_tri_code, prob_win=prob_home_win),
                 away=TeamSidePrediction(tri_code=game.away_team_tri_code, prob_win=prob_away_win)
-                ) if int_date >= today_int_date else None,
+                ) if int_date >= today_int_date or has_prediction else None,
             moneyline=moneyline_odds.get(game.id),
-            isNextGame=False
+            isNextGame=False,
+            live=live_out(status),
+            edge=game_edge(game.home_team_tri_code, game.away_team_tri_code, prob_home_win, prob_away_win,
+                           moneyline_odds.get(game.id)),
         )
         cleaned_games.append(game_info)
     if len(cleaned_games) == 0:

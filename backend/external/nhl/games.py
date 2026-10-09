@@ -1,6 +1,8 @@
 from external.nhl.response_models import GameResponse
-from external.nhl.response_models import GameOdds, GameGoalie
+from external.nhl.response_models import GameOdds, GameGoalie, GameLiveStatus
 import asyncio
+import datetime
+import os
 import time
 import httpx
 from external.http import get_with_retries
@@ -81,23 +83,104 @@ async def get_odds_for_current_games() -> list[GameOdds] | None:
 # regular season (2) and playoffs (3); the schedule scraper already drops preseason (1)
 SCORE_GAME_TYPES = (2, 3)
 
+SCORE_NOW_URL = "https://api-web.nhle.com/v1/score/now"
+DEFAULT_LIVE_POLL_MINUTES = 10.0
+# game states while the puck is in play (CRIT: the last minutes of the third and overtime)
+IN_PROGRESS_STATES = ("LIVE", "CRIT")
+FINISHED_STATES = ("OFF", "FINAL")
+
+def live_poll_minutes() -> float:
+    """How often the NHL score feed is polled for games under way: LIVE_SCORES_POLL_MINUTES in .env, default 10. Sets
+    both the scheduled live-scores job and how long the site reuses the feed for its period/clock."""
+    raw = os.environ.get("LIVE_SCORES_POLL_MINUTES", "").strip()
+    try:
+        minutes = float(raw) if raw else DEFAULT_LIVE_POLL_MINUTES
+    except ValueError:
+        print(f"LIVE_SCORES_POLL_MINUTES={raw!r} is not a number, using {DEFAULT_LIVE_POLL_MINUTES:g}")
+        return DEFAULT_LIVE_POLL_MINUTES
+    if minutes <= 0:
+        print(f"LIVE_SCORES_POLL_MINUTES={raw!r} must be positive, using {DEFAULT_LIVE_POLL_MINUTES:g}")
+        return DEFAULT_LIVE_POLL_MINUTES
+    return minutes
+
+# (monotonic time fetched, UTC time fetched, the feed's games); only successful fetches are cached
+_score_cache: tuple[float, datetime.datetime, list[dict]] | None = None
+_score_lock = asyncio.Lock()
+
+async def _fetch_score_now() -> tuple[bool, list[dict] | None]:
+    """Returns (succeeded, the feed's raw games). A failed request is (False, None)."""
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(SCORE_NOW_URL, follow_redirects=True)
+            response.raise_for_status()
+            return True, response.json().get("games") or None
+        except Exception as e:
+            print(f"Error scraping scores: {e}")
+            return False, None
+
+async def get_score_now(max_age_seconds: float | None = None) -> tuple[datetime.datetime, list[dict]] | None:
+    """(when fetched, raw games) from NHL's score/now, reusing a fetch younger than max_age_seconds (None: always
+    fetch). None when the feed can't be fetched or lists no games."""
+    global _score_cache
+    async with _score_lock:
+        if (max_age_seconds is not None and _score_cache is not None
+                and time.monotonic() - _score_cache[0] < max_age_seconds):
+            return _score_cache[1], _score_cache[2]
+        succeeded, games = await _fetch_score_now()
+        if not succeeded:
+            return None
+        _score_cache = (time.monotonic(), datetime.datetime.now(datetime.timezone.utc), games or [])
+        return (_score_cache[1], games) if games else None
+
+def parse_live_status(game: dict, fetched_at: datetime.datetime,
+                      now: datetime.datetime | None = None) -> GameLiveStatus | None:
+    """A game's state, score, period and clock from a score/now game, or None for a game that hasn't started.
+    The game clock is as the feed reported it (it stops with play, so it can't be run forward). An intermission clock
+    runs in real time, so its time left is counted down from the fetch to `now`."""
+    state = game.get("gameState")
+    if state not in IN_PROGRESS_STATES + FINISHED_STATES or game.get("id") is None:
+        return None
+    period = game.get("periodDescriptor") or {}
+    clock = game.get("clock") or {}
+    in_intermission = bool(clock.get("inIntermission")) and state in IN_PROGRESS_STATES
+    seconds = clock.get("secondsRemaining") if state in IN_PROGRESS_STATES else None
+    if seconds is not None and in_intermission:
+        elapsed = ((now or datetime.datetime.now(datetime.timezone.utc)) - fetched_at).total_seconds()
+        seconds = max(0, int(seconds - max(0.0, elapsed)))
+    return GameLiveStatus(
+        game_id=int(game["id"]), game_state=state,
+        home_score=(game.get("homeTeam") or {}).get("score"), away_score=(game.get("awayTeam") or {}).get("score"),
+        period=period.get("number") or game.get("period"), period_type=period.get("periodType"),
+        seconds_remaining=seconds, in_intermission=in_intermission,
+        clock_running=bool(clock.get("running")) and state in IN_PROGRESS_STATES, as_of=fetched_at)
+
+async def get_live_statuses(now: datetime.datetime | None = None) -> dict[int, GameLiveStatus]:
+    """game_id -> parse_live_status for the games score/now lists, the feed fetched at most every
+    LIVE_SCORES_POLL_MINUTES so page views don't each call the NHL API. Empty when the feed is unavailable."""
+    feed = await get_score_now(max_age_seconds=live_poll_minutes() * 60)
+    if feed is None:
+        return {}
+    fetched_at, games = feed
+    statuses = {}
+    for game in games:
+        try:
+            status = parse_live_status(game, fetched_at, now)
+        except Exception as e:
+            print(f"Skipping live status of game {game.get('id')}: {e}")
+            continue
+        if status is not None:
+            statuses[status.game_id] = status
+    return statuses
+
 async def get_current_scores(valid_tri_codes: set[str] | None = None) -> list[GameResponse] | None:
     """Fetches today's games and scores. Games are validated one by one so a single bad
     game is skipped instead of failing the batch. Non regular-season/playoff games are dropped,
     and so are games whose teams are not in valid_tri_codes (when given), since they would
-    violate the games -> teams foreign key."""
-    base_url = "https://api-web.nhle.com/v1/score/now"
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(base_url, follow_redirects=True)
-            response.raise_for_status()
-            data = response.json()
-            games = data.get("games")
-            if not games or len(games) == 0:
-                return None
-        except Exception as e:
-            print(f"Error scraping scores: {e}")
-            return None
+    violate the games -> teams foreign key. Always a fresh fetch, which also refreshes the site's live clocks."""
+    feed = await get_score_now()
+    if feed is None:
+        return None
+    games = feed[1]
 
     parsed = []
     for game in games:
