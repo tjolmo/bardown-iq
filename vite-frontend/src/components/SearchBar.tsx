@@ -40,34 +40,25 @@ export default function SearchBar() {
     };
 
     return (
-        <div ref={containerRef} className="relative ml-auto">
-            <div className="relative">
-                <svg
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    viewBox="0 0 24 24"
-                >
-                    <circle cx="11" cy="11" r="8" />
-                    <path d="m21 21-4.35-4.35" strokeLinecap="round" />
+        <div ref={containerRef} className="relative" style={{ flex: "0 1 280px", minWidth: 220 }}>
+            <label className="bd-search">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="M20 20l-4-4" />
                 </svg>
+                <span className="bd-sr">Search players or teams</span>
                 <input
                     ref={inputRef}
-                    type="text"
+                    type="search"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Search players/teams…"
-                    className="w-48 pl-8 pr-3 py-1.5 rounded-xl bg-slate-100 text-sm text-slate-700
-                               placeholder:text-slate-400 border border-transparent
-                               focus:outline-none focus:border-blue-400 focus:bg-white focus:shadow-sm
-                               transition-all"
+                    placeholder="Search a player or team"
                 />
                 {loading && (
-                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin" />
+                    <span className="w-4 h-4 border-2 border-[var(--line)] border-t-[var(--ink)] rounded-full animate-spin shrink-0" aria-hidden="true" />
                 )}
-            </div>
+            </label>
 
             {showDropdown && (
                 <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-2xl shadow-xl shadow-slate-200/80 border border-slate-100 overflow-hidden z-50">

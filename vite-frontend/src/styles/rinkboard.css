@@ -1,0 +1,155 @@
+/* BarDown IQ Rink Board: the design system's tokens and bd-* component classes (its tokens.json and
+   components/bundle.css). The fonts load in index.html. Page-wide rules are scoped to .bd-page and .bd-nav so pages
+   not yet on the Rink Board keep their look. */
+:root {
+  --ice: #F3F6F8;
+  --boards: #FFFFFF;
+  --ink: #0E1A24;
+  --ink-muted: #3E4C58;
+  --ink-subtle: #5D6A75;
+  --on-ink: #FFFFFF;
+  --line: #D5DDE3;
+  --line-dashed: #C3CDD5;
+  --goal-red: #C8102E;
+  --blue-line: #1D4FB8;
+  --away-ice: #DCE6F7;
+  --home-ice: #F8DDE1;
+  --crease: #CFE0F5;
+  --chip-quiet: #E6ECF0;
+
+  --font-display: "Archivo", system-ui, sans-serif;
+  --font-body: "Archivo", system-ui, sans-serif;
+  --font-marker: "Permanent Marker", "Comic Sans MS", cursive;
+
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px;
+  --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+
+  --radius-chip: 12px; --radius-meter: 16px; --radius-card: 20px; --radius-pill: 22px;
+  --radius-rink: 120px; --radius-round: 50%;
+
+  --shadow-puck: 0 2px 0 #3E4C58;
+  --border-rink: 3px;
+  --border-strong: 2px;
+}
+
+.bd-page { min-height: 100vh; font-family: var(--font-body); font-size: 15px; line-height: 1.5; background: var(--ice); color: var(--ink); }
+.bd-page a, .bd-nav a { color: var(--ink); text-decoration: none; }
+.bd-page a:hover, .bd-nav a:hover { color: var(--goal-red); }
+.bd-page :focus-visible, .bd-nav :focus-visible { outline: 3px solid var(--blue-line); outline-offset: 2px; }
+.bd-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.bd-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.bd-main { width: 100%; max-width: 1240px; margin: 0 auto; box-sizing: border-box; padding: var(--space-10) var(--space-6) 56px; display: flex; flex-direction: column; gap: var(--space-10); }
+.bd-section { display: flex; flex-direction: column; gap: var(--space-5); }
+.bd-section-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-8); }
+.bd-muted { color: var(--ink-muted); }
+
+/* Wordmark */
+.bd-wordmark { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-display); font-weight: 900; font-stretch: 70%; font-style: italic; font-size: 32px; line-height: 1; letter-spacing: -0.01em; text-transform: uppercase; color: var(--ink); }
+.bd-wordmark-iq { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-round); background: var(--goal-red); color: var(--on-ink); font-size: 15px; font-style: normal; font-stretch: 100%; }
+
+/* NavBar */
+.bd-nav { position: sticky; top: 0; z-index: 50; background: var(--boards); border-bottom: 1px solid var(--line); font-family: var(--font-body); font-size: 15px; }
+.bd-nav-inner { max-width: 1240px; margin: 0 auto; padding: var(--space-3) var(--space-6); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-8); box-sizing: border-box; }
+.bd-nav-links { display: flex; flex-wrap: wrap; gap: var(--space-1); flex: 1 1 auto; }
+.bd-nav-link { padding: var(--space-3) 14px; font-weight: 600; color: var(--ink-muted); }
+.bd-nav a.bd-nav-link { color: var(--ink-muted); }
+.bd-nav a.bd-nav-link:hover { color: var(--goal-red); }
+.bd-nav a.bd-nav-link[aria-current="page"] { font-weight: 700; color: var(--ink); box-shadow: inset 0 -4px 0 var(--goal-red); }
+
+/* SearchField */
+.bd-search { display: flex; align-items: center; gap: var(--space-2); background: var(--ice); border-radius: var(--radius-pill); padding: 0 var(--space-4); height: 44px; width: 100%; box-sizing: border-box; }
+.bd-search svg { flex: none; color: var(--ink-subtle); }
+.bd-search input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: var(--ink); font: inherit; }
+.bd-search input::placeholder { color: var(--ink-subtle); }
+.bd-search:focus-within { box-shadow: 0 0 0 3px var(--blue-line); }
+
+/* IconButton */
+.bd-icon-btn { width: 44px; height: 44px; border-radius: var(--radius-round); border: var(--border-strong) solid var(--ink); background: var(--boards); color: var(--ink); cursor: pointer; display: inline-grid; place-items: center; padding: 0; }
+.bd-icon-btn:hover { background: var(--ink); color: var(--on-ink); }
+
+/* RinkHero */
+.bd-rink { position: relative; overflow: hidden; background: var(--boards); border: var(--border-rink) solid var(--ink); border-radius: var(--radius-rink); min-height: 300px; }
+.bd-rink-marks { position: absolute; inset: 0; pointer-events: none; }
+.bd-rink-marks i { position: absolute; display: block; }
+.bd-rink-goal-l, .bd-rink-goal-r { top: 0; bottom: 0; width: 2px; background: var(--goal-red); opacity: 0.6; }
+.bd-rink-goal-l { left: 7%; } .bd-rink-goal-r { right: 7%; }
+.bd-rink-blue-l, .bd-rink-blue-r { top: 0; bottom: 0; width: 10px; background: var(--blue-line); opacity: 0.85; }
+.bd-rink-blue-l { left: 33%; } .bd-rink-blue-r { right: 33%; }
+.bd-rink-center { top: 0; bottom: 0; left: calc(50% - 4px); width: 8px; background: var(--goal-red); opacity: 0.85; }
+.bd-rink-circle { top: 50%; left: 50%; width: 170px; height: 170px; margin: -85px 0 0 -85px; border: 3px solid var(--blue-line); border-radius: var(--radius-round); box-sizing: border-box; }
+.bd-rink-dot { top: 50%; left: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: var(--radius-round); background: var(--blue-line); }
+.bd-rink-crease-l, .bd-rink-crease-r { top: calc(50% - 30px); width: 30px; height: 60px; background: var(--crease); }
+.bd-rink-crease-l { left: 7%; border-radius: 0 30px 30px 0; } .bd-rink-crease-r { right: 7%; border-radius: 30px 0 0 30px; }
+.bd-rink-content { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-8); padding: var(--space-12) 11%; min-height: 300px; box-sizing: border-box; }
+.bd-rink-zone { display: flex; flex-direction: column; gap: var(--space-3); background: rgba(255, 255, 255, 0.88); padding: var(--space-2) var(--space-3); }
+.bd-display-xl { margin: 0; font-family: var(--font-display); font-weight: 900; font-stretch: 68%; font-size: 76px; line-height: 0.88; letter-spacing: -0.01em; text-transform: uppercase; }
+.bd-heading { margin: 0; font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 36px; line-height: 1.1; text-transform: uppercase; }
+
+/* StatusChip */
+.bd-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; line-height: 1.4; padding: 4px 10px; border-radius: var(--radius-chip); letter-spacing: 0.06em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bd-chip-live { background: var(--goal-red); color: var(--on-ink); }
+.bd-chip-final { background: var(--ink); color: var(--on-ink); }
+.bd-chip-time { border: var(--border-strong) solid var(--ink); padding: 2px 10px; letter-spacing: 0; color: var(--ink); }
+
+/* TeamMark */
+.bd-team { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); min-width: 0; }
+.bd-team-home { align-items: flex-end; text-align: right; }
+.bd-team-logo { width: 96px; height: 96px; object-fit: contain; }
+.bd-team-city { font-size: 13px; font-weight: 600; color: var(--ink-muted); }
+.bd-team-name { font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 26px; line-height: 1; text-transform: uppercase; }
+
+/* RinkMeter */
+.bd-meter-track { position: relative; height: 30px; border: var(--border-strong) solid var(--ink); border-radius: var(--radius-meter); overflow: hidden; background: var(--boards); box-sizing: border-box; }
+.bd-meter-track i { position: absolute; top: 0; bottom: 0; display: block; }
+.bd-meter-away { left: 0; background: var(--away-ice); }
+.bd-meter-home { right: 0; background: var(--home-ice); }
+.bd-meter-blue { width: 4px; background: var(--blue-line); }
+.bd-meter-red { left: calc(50% - 2px); width: 4px; background: var(--goal-red); }
+.bd-meter-track .bd-meter-puck { top: 6px; bottom: auto; width: 18px; height: 14px; margin-left: -9px; border-radius: var(--radius-round); background: var(--ink); box-shadow: var(--shadow-puck); }
+.bd-meter-labels { display: flex; justify-content: space-between; margin-top: var(--space-2); font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
+.bd-meter-labels .bd-away { color: var(--blue-line); }
+.bd-meter-labels .bd-home { color: var(--goal-red); }
+.bd-label { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-subtle); align-self: center; }
+
+/* EdgeChip */
+.bd-edge { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 800; font-size: 14px; padding: 4px 12px 4px 4px; border-radius: 16px; background: var(--chip-quiet); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.bd-edge-strong { background: var(--ink); color: var(--on-ink); }
+.bd-edge-logo { width: 26px; height: 26px; border-radius: var(--radius-round); background: var(--boards); display: grid; place-items: center; }
+.bd-edge-logo img { width: 22px; height: 22px; object-fit: contain; }
+
+/* GameCard */
+.bd-card { position: relative; display: flex; flex-direction: column; gap: var(--space-5); background: var(--boards); border: var(--border-strong) solid var(--line); border-radius: var(--radius-card); padding: var(--space-6); color: var(--ink); }
+.bd-card:hover { border-color: var(--ink); }
+.bd-card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-size: 13px; color: var(--ink-muted); }
+.bd-card-teams { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--space-3); }
+.bd-card-mid { text-align: center; }
+.bd-score { font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 48px; line-height: 1; font-variant-numeric: tabular-nums; }
+.bd-card-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); border-top: 1px dashed var(--line-dashed); padding-top: var(--space-4); font-size: 14px; color: var(--ink-muted); min-height: 34px; }
+.bd-card-foot strong { color: var(--ink); }
+.bd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: var(--space-5); }
+
+/* CoachNote */
+.bd-note { font-family: var(--font-marker); font-size: 22px; line-height: 1.2; color: var(--goal-red); display: inline-block; transform: rotate(-3deg); }
+.bd-note-ring { position: absolute; border: 3px solid var(--goal-red); border-radius: var(--radius-round); transform: rotate(-4deg); pointer-events: none; }
+.bd-note-tag { position: absolute; top: -18px; right: var(--space-6); font-family: var(--font-marker); font-size: 20px; color: var(--goal-red); background: var(--ice); padding: 0 var(--space-2); transform: rotate(2deg); }
+
+/* Legend */
+.bd-legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); font-size: 13px; color: var(--ink-muted); }
+.bd-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.bd-swatch { width: 14px; height: 14px; display: inline-block; }
+
+/* An empty or failed board: said in words, on the boards surface */
+.bd-empty { background: var(--boards); border: var(--border-strong) solid var(--line); border-radius: var(--radius-card); padding: var(--space-10) var(--space-6); text-align: center; color: var(--ink-muted); font-weight: 600; }
+
+@media (max-width: 680px) {
+  .bd-main { padding: var(--space-6) var(--space-4) var(--space-10); }
+  .bd-nav-inner { padding: var(--space-3) var(--space-4); }
+  .bd-display-xl { font-size: 54px; }
+  .bd-rink { border-radius: 64px; }
+  .bd-rink-content { padding: var(--space-10) 9%; }
+  .bd-team-logo { width: 64px; height: 64px; }
+  .bd-team-name { font-size: 20px; }
+  .bd-score { font-size: 40px; }
+  .bd-heading { font-size: 30px; }
+  .bd-card { padding: var(--space-5); }
+}

@@ -1,9 +1,18 @@
 import type { FC } from "react";
-import { GameCard } from "../components/schedule/GameCard";
 import { useParams, useNavigate } from "react-router-dom";
 import { useDateGames } from "../hooks/useDateGames";
-import LoadingPage from "./LoadingPage";
-import ErrorPage from "./ErrorPage";
+import { useNow } from "../hooks/useNow";
+import type { TeamScheduledGame } from "../types/teams";
+import { gamePhase, type GamePhase } from "../utils/gameStatus";
+import { RinkHero } from "../components/rinkboard/RinkHero";
+import { ChevronButton } from "../components/rinkboard/ChevronButton";
+import { BoardGameCard } from "../components/rinkboard/BoardGameCard";
+import { STRONG_EDGE_POINTS } from "../components/rinkboard/EdgeChip";
+
+// while a game is on (or about to be), refetch the board this often; the server polls the NHL feed on its own
+// interval (LIVE_SCORES_POLL_MINUTES) and caches it, so this only picks up its updates
+const LIVE_REFRESH_MS = 60_000;
+const SOON_MS = 15 * 60_000;
 
 const toDateParam = (d: Date): string => {
   const y = d.getFullYear();
@@ -21,76 +30,164 @@ const parseDate = (date: string): Date => {
   );
 };
 
+const dayLabel = (d: Date): string => {
+  const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+  const monthDay = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return `${weekday} · ${monthDay}`;
+};
+
+// the board's order: games on now, then still to come (by puck drop), then finals
+const PHASE_ORDER: Record<GamePhase, number> = { live: 0, pre: 1, final: 2 };
+
+const orderGames = (games: TeamScheduledGame[]): TeamScheduledGame[] =>
+  [...games].sort(
+    (a, b) =>
+      PHASE_ORDER[gamePhase(a)] - PHASE_ORDER[gamePhase(b)] ||
+      new Date(a.time).getTime() - new Date(b.time).getTime()
+  );
+
+/** The day's single best pick: the biggest strong edge among games still to drop the puck. */
+const coachsPickId = (games: TeamScheduledGame[]): number | null => {
+  let best: TeamScheduledGame | null = null;
+  for (const g of games) {
+    if (gamePhase(g) !== "pre" || !g.edge || g.edge.points < STRONG_EDGE_POINTS) continue;
+    if (!best || g.edge.points > best.edge!.points) best = g;
+  }
+  return best?.id ?? null;
+};
+
+const summary = (games: TeamScheduledGame[]): string => {
+  const count = { live: 0, pre: 0, final: 0 };
+  games.forEach((g) => count[gamePhase(g)]++);
+  return [
+    count.live > 0 && `${count.live} live`,
+    count.pre > 0 && `${count.pre} still to drop the puck`,
+    count.final > 0 && `${count.final} final`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+};
+
+const needsRefresh = (games: TeamScheduledGame[]): boolean =>
+  games.some((g) => {
+    const phase = gamePhase(g);
+    return phase === "live" || (phase === "pre" && new Date(g.time).getTime() - Date.now() < SOON_MS);
+  });
+
 export const DailySchedulePage: FC = () => {
   const { date } = useParams();
   const navigate = useNavigate();
-  const { data: games, loading, error } = useDateGames(date!);
-
+  const isToday = date === "today";
   const currentDate = parseDate(date!);
 
-  const goYesterday = () => {
-    const prev = new Date(currentDate);
-    prev.setDate(prev.getDate() - 1);
-    navigate(`/schedule/${toDateParam(prev)}`);
+  // refreshed only while something is happening; a quiet board is fetched once
+  const { data: games, loading, error, receivedAt } = useDateGames(date!, LIVE_REFRESH_MS, needsRefresh);
+  const inIntermission = !!games?.some((g) => gamePhase(g) === "live" && g.live?.inIntermission);
+  const now = useNow(inIntermission ? 1000 : null);
+
+  const step = (days: number) => {
+    const d = new Date(currentDate);
+    d.setDate(d.getDate() + days);
+    navigate(`/schedule/${toDateParam(d)}`);
   };
 
-  const goTomorrow = () => {
-    const next = new Date(currentDate);
-    next.setDate(next.getDate() + 1);
-    navigate(`/schedule/${toDateParam(next)}`);
-  };
-
-  if (loading) return <LoadingPage />;
-  if (error || !games) return <ErrorPage message="Error loading schedule data." />;
+  const ordered = games ? orderGames(games) : [];
+  const pick = coachsPickId(ordered);
+  const gameCount = games?.length ?? 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-100 font-sans p-4 sm:p-6 lg:p-10">
-      <div className="fixed top-0 right-0 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="fixed bottom-0 left-0 w-64 h-64 bg-indigo-400/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="relative max-w-2xl mx-auto space-y-4">
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/60 overflow-hidden">
-          <div className="h-20 bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 relative">
-            <div
-              className="absolute inset-0 opacity-20"
-              style={{
-                backgroundImage:
-                  "repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,.15) 10px, rgba(255,255,255,.15) 11px)",
-              }}
-            />
-            <button
-              onClick={goYesterday}
-              aria-label="Go to yesterday's schedule"
-              className="absolute left-4 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center w-9 h-9 rounded-full bg-white/20 hover:bg-white/35 active:scale-95 transition-all duration-150 text-white shadow"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path fillRule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
-              </svg>
-            </button>
-
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <h1 className="text-white font-black text-2xl tracking-tight drop-shadow">
-                {date === "today"
-                  ? `Today (${new Date().toLocaleDateString()})`
-                  : currentDate.toLocaleDateString()}
-                's Schedule
+    <div className="bd-page">
+      <main className="bd-main">
+        <RinkHero
+          labelledBy="board-title"
+          left={
+            <>
+              <div className="bd-row" style={{ gap: 8 }}>
+                <ChevronButton direction="previous" label="Previous day" onClick={() => step(-1)} />
+                <ChevronButton direction="next" label="Next day" onClick={() => step(1)} />
+                <span className="bd-muted" style={{ fontWeight: 700 }}>
+                  {dayLabel(currentDate)}
+                </span>
+              </div>
+              <h1 id="board-title" className="bd-display-xl">
+                {isToday ? (
+                  <>
+                    Tonight
+                    <br />
+                    on the ice
+                  </>
+                ) : (
+                  <>
+                    On the ice
+                    <br />
+                    {currentDate.toLocaleDateString("en-US", { weekday: "long" })}
+                  </>
+                )}
               </h1>
-            </div>
+            </>
+          }
+          right={
+            games ? (
+              <>
+                <span className="bd-display-xl" style={{ textTransform: "none" }}>
+                  {gameCount === 0 ? "No games" : `${gameCount} ${gameCount === 1 ? "game" : "games"}`}
+                </span>
+                {gameCount > 0 && (
+                  <span className="bd-muted" style={{ fontWeight: 600 }}>
+                    {summary(games)}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="bd-muted" style={{ fontWeight: 600 }}>
+                {loading ? "Setting up the board" : ""}
+              </span>
+            )
+          }
+        />
 
-            <button
-              onClick={goTomorrow}
-              aria-label="Go to tomorrow's schedule"
-              className="absolute right-4 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center w-9 h-9 rounded-full bg-white/20 hover:bg-white/35 active:scale-95 transition-all duration-150 text-white shadow"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path fillRule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-              </svg>
-            </button>
+        <section className="bd-section" aria-labelledby="board-heading">
+          <div className="bd-section-head">
+            <h2 id="board-heading" className="bd-heading">
+              The board
+            </h2>
+            <div className="bd-legend">
+              <span>
+                <i className="bd-swatch" style={{ background: "var(--blue-line)" }} />
+                Away
+              </span>
+              <span>
+                <i className="bd-swatch" style={{ background: "var(--goal-red)" }} />
+                Home
+              </span>
+              <span>
+                <i className="bd-swatch" style={{ background: "var(--ink)", borderRadius: "50%" }} />
+                Puck sits at the model's win %
+              </span>
+            </div>
           </div>
-        </div>
-        {games.map((game, i) => (
-          <GameCard key={game.id} game={game} index={i} />
-        ))}
-      </div>
+
+          {loading ? (
+            <p className="bd-empty" role="status">Loading the board</p>
+          ) : error || !games ? (
+            <p className="bd-empty" role="alert">The board didn't load. Check that the API is up, then refresh the page.</p>
+          ) : gameCount === 0 ? (
+            <p className="bd-empty">No puck drops on this day.</p>
+          ) : (
+            <div className="bd-grid">
+              {ordered.map((game) => (
+                <BoardGameCard
+                  key={game.id}
+                  game={game}
+                  coachsPick={game.id === pick}
+                  receivedAt={receivedAt}
+                  now={Math.max(now, receivedAt)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
     </div>
   );
 };

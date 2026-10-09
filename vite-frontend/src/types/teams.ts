@@ -22,6 +22,29 @@ export interface TeamScheduledGame {
   predictions?: TeamGamePrediction;
   moneyline?: TeamMoneyline;
   isNextGame?: boolean;
+  // today's games once started: period and clock from NHL's score feed
+  live?: TeamGameLive | null;
+  // the side the model likes against the moneyline
+  edge?: TeamGameEdge | null;
+}
+
+export interface TeamGameLive {
+  period: number | null;
+  periodType: "REG" | "OT" | "SO" | string | null;
+  // of the period, or of the intermission when inIntermission (counted down to when the server answered)
+  secondsRemaining: number | null;
+  timeRemaining: string | null;
+  inIntermission: boolean;
+  clockRunning: boolean;
+  // when the feed was polled: the game clock is as of then
+  asOf: string;
+}
+
+export interface TeamGameEdge {
+  tri_code: string;
+  side: "home" | "away";
+  // model win probability minus the no-vig moneyline probability, in percentage points
+  points: number;
 }
 
 export interface SearchTeamResult {
