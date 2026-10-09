@@ -1,0 +1,81 @@
+{
+ "id": 2026020053,
+ "season": 20262027,
+ "gameType": 2,
+ "limitedScoring": false,
+ "gameDate": "2026-10-07",
+ "venue": {
+  "default": "Capital One Arena"
+ },
+ "venueLocation": {
+  "default": "Washington"
+ },
+ "startTimeUTC": "2026-10-07T23:30:00Z",
+ "easternUTCOffset": "-04:00",
+ "venueUTCOffset": "-04:00",
+ "tvBroadcasts": [
+  {
+   "id": 385,
+   "market": "N",
+   "countryCode": "US",
+   "network": "TNT",
+   "sequenceNumber": 11
+  },
+  {
+   "id": 578,
+   "market": "N",
+   "countryCode": "US",
+   "network": "HBO MAX",
+   "sequenceNumber": 19
+  }
+ ],
+ "gameState": "FUT",
+ "gameScheduleState": "OK",
+ "awayTeam": {
+  "id": 5,
+  "commonName": {
+   "default": "Penguins"
+  },
+  "abbrev": "PIT",
+  "score": 0,
+  "logo": "https://assets.nhle.com/logos/nhl/svg/PIT_light.svg",
+  "darkLogo": "https://assets.nhle.com/logos/nhl/svg/PIT_dark.svg",
+  "placeName": {
+   "default": "Pittsburgh"
+  },
+  "placeNameWithPreposition": {
+   "default": "Pittsburgh",
+   "fr": "de Pittsburgh"
+  }
+ },
+ "homeTeam": {
+  "id": 15,
+  "commonName": {
+   "default": "Capitals"
+  },
+  "abbrev": "WSH",
+  "score": 0,
+  "logo": "https://assets.nhle.com/logos/nhl/svg/WSH_secondary_light.svg",
+  "darkLogo": "https://assets.nhle.com/logos/nhl/svg/WSH_secondary_dark.svg",
+  "placeName": {
+   "default": "Washington"
+  },
+  "placeNameWithPreposition": {
+   "default": "Washington",
+   "fr": "de Washington"
+  }
+ },
+ "shootoutInUse": true,
+ "otInUse": true,
+ "clock": {
+  "timeRemaining": "20:00",
+  "secondsRemaining": 1200,
+  "running": false,
+  "inIntermission": false
+ },
+ "displayPeriod": 1,
+ "maxPeriods": 5,
+ "plays": [],
+ "rosterSpots": [],
+ "regPeriods": 3
+}

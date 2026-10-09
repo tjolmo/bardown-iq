@@ -17,11 +17,27 @@ TRICODE_MAP = {
     "L.A": "LAK",
 }
 
+# MoneyPuck labels old seasons with the franchise's current code; the NHL API uses the code of the time.
+# code -> (code at the time, last season start year it applies to)
+LEGACY_TRICODES = {
+    "ARI": ("PHX", 2013),  # Phoenix Coyotes until 2013-14
+}
+
 def _download_season_zip(url: str) -> io.BytesIO:
     """Downloads a season zip, raising on timeouts and non-2xx responses (so an HTML error page is never treated as a zip)."""
     response = requests.get(url, timeout=DOWNLOAD_TIMEOUT)
     response.raise_for_status()
     return io.BytesIO(response.content)
+
+def _season_csv_member(z: zipfile.ZipFile, season: int) -> str:
+    """Finds the season CSV in a zip; older seasons store it under a nested path."""
+    csvs = [n for n in z.namelist() if n.lower().endswith(".csv")]
+    matches = [n for n in csvs if n.rsplit("/", 1)[-1] == f"{season}.csv"]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches and len(csvs) == 1:
+        return csvs[0]
+    raise ValueError(f"Could not find a single {season}.csv in zip; members: {z.namelist()}")
 
 def _validate_rows(model, rows: list[dict], label: str) -> list:
     """Validates each CSV row on its own so one malformed row is skipped (and counted) instead of discarding the season."""
@@ -41,11 +57,27 @@ def _validate_rows(model, rows: list[dict], label: str) -> list:
 
 # fixes issue with older gamelogs now being scraped
 def _normalize_tricodes(df: pd.DataFrame) -> pd.DataFrame:
-    """Replace MoneyPuck dot-separated team codes with standard 3-letter tricodes."""
+    """Replace MoneyPuck dot-separated team codes with standard 3-letter tricodes, and modern codes with the
+    code the team used that season (so logs match the NHL API's games)."""
     for col in ("playerTeam", "opposingTeam"):
         if col in df.columns:
             df[col] = df[col].replace(TRICODE_MAP)
+            if "season" in df.columns:
+                for code, (old_code, last_season) in LEGACY_TRICODES.items():
+                    df.loc[(df[col] == code) & (df["season"] <= last_season), col] = old_code
     return df
+
+def _join_power_play(all_rows: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame:
+    """Adds pp_icetime / pp_I_F_points from the situation == "5on4" rows, per (playerId, gameId).
+    Skaters with no 5on4 row for a game get 0 (they had no power-play time)."""
+    pp = (
+        df.loc[df["situation"] == "5on4", ["playerId", "gameId", "icetime", "I_F_points"]]
+        .drop_duplicates(["playerId", "gameId"])
+        .rename(columns={"icetime": "pp_icetime", "I_F_points": "pp_I_F_points"})
+    )
+    merged = all_rows.merge(pp, on=["playerId", "gameId"], how="left")
+    merged[["pp_icetime", "pp_I_F_points"]] = merged[["pp_icetime", "pp_I_F_points"]].fillna(0)
+    return merged
 
 def scrape_skater_game_data(player_id: int, start_date: int|None = None) -> list[SkaterGameLogResponse] | None:
     """REMOVE LATER"""
@@ -128,15 +160,16 @@ def scrape_all_skater_game_logs(season: int) -> list[SkaterGameLogResponse] | No
         'playerTeam', 'opposingTeam', 'gameDate', 'situation',
         'I_F_goals', 'I_F_primaryAssists', 'I_F_secondaryAssists', 'I_F_points',
         'I_F_xGoals', 'icetime', 'I_F_highDangerShots', 
-        'I_F_shotAttempts', 'onIce_xGoalsPercentage', 'gameScore'
+        'I_F_shotAttempts', 'onIce_xGoalsPercentage', 'gameScore',
+        'I_F_shotsOnGoal', 'I_F_hits', 'shotsBlockedByPlayer',
     ]
     # download the zip file and unpack the csv
     try:
         csv_data = _download_season_zip(csv_url)
         with zipfile.ZipFile(csv_data) as z:
-            with z.open(f"{season}.csv") as f:
+            with z.open(_season_csv_member(z, season)) as f:
                 df = pd.read_csv(f, usecols=cols)
-                filtered = df.query('situation == "all"').copy()
+                filtered = _join_power_play(df.query('situation == "all"').copy(), df)
                 filtered = _normalize_tricodes(filtered)
             return _validate_rows(SkaterGameLogResponse, filtered.to_dict("records"), f"skater {season}")
     except Exception as e:
@@ -161,7 +194,7 @@ def scrape_all_goalie_game_logs(season: int) -> list[GoalieGameLogResponse] | No
     try:
         csv_data = _download_season_zip(csv_url)
         with zipfile.ZipFile(csv_data) as z:
-            with z.open(f"{season}.csv") as f:
+            with z.open(_season_csv_member(z, season)) as f:
                 df = pd.read_csv(f, usecols=cols)
                 filtered = df.query('situation == "all"').copy()
                 filtered = _normalize_tricodes(filtered)

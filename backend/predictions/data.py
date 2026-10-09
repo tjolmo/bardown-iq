@@ -1,131 +1,108 @@
 import pandas as pd
 from sqlalchemy import select, case
-from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models import SkaterGameFeatures, SkaterGameLog, GoalieGameFeatures, GoalieGameLog, TeamGameFeatures, TeamGameLog
+from app.models import SkaterGameLog, GoalieGameLog, Games, Player, TeamGameStats, GameOdds
+from app.crud.games import FINISHED_GAME_STATES
 
-async def load_skater_training_data(db: AsyncSession) -> pd.DataFrame:
-    is_home_expr = case(
-        (SkaterGameLog.home_away == "HOME", 1),
-        else_=0,
-    ).label("is_home")
+def _frame(rows) -> pd.DataFrame:
+    return pd.DataFrame([dict(r) for r in rows])
 
+def _is_home(col):
+    return case((col == "HOME", 1.0), else_=0.0).label("is_home")
+
+async def load_skater_logs(db: AsyncSession, player_ids: list[int] | None = None, seasons: list[int] | None = None) -> pd.DataFrame:
     stmt = (
         select(
-            SkaterGameFeatures.game_id,
-            SkaterGameFeatures.player_id,
-            SkaterGameFeatures.rolling_x_goals,
-            SkaterGameFeatures.rolling_toi,
-            SkaterGameFeatures.rolling_game_score,
-            SkaterGameFeatures.rolling_shot_attempts,
-            SkaterGameFeatures.rolling_high_danger_shots,
-            SkaterGameFeatures.rolling_on_ice_x_goals_percentage,
-            SkaterGameFeatures.rolling_primary_assists,
-            SkaterGameFeatures.rolling_goals,
-            SkaterGameFeatures.rolling_points,
-            is_home_expr,
-            SkaterGameLog.points,
-            SkaterGameLog.goals,
-            SkaterGameLog.primary_assists,
-            SkaterGameLog.secondary_assists,
+            SkaterGameLog.game_id, SkaterGameLog.player_id, SkaterGameLog.season, SkaterGameLog.game_date,
+            SkaterGameLog.player_team_tricode.label("team"), SkaterGameLog.opposing_team_tricode.label("opponent"),
+            _is_home(SkaterGameLog.home_away), Player.position, Player.birth_date,
+            SkaterGameLog.goals, SkaterGameLog.primary_assists, SkaterGameLog.secondary_assists, SkaterGameLog.points,
+            SkaterGameLog.x_goals, SkaterGameLog.toi, SkaterGameLog.shot_attempts, SkaterGameLog.high_danger_shots,
+            SkaterGameLog.on_ice_x_goals_percentage, SkaterGameLog.game_score,
+            SkaterGameLog.shots_on_goal, SkaterGameLog.pp_toi, SkaterGameLog.pp_points,
+            SkaterGameLog.hits, SkaterGameLog.blocked_shots,
         )
-        .join(
-            SkaterGameLog,
-            (SkaterGameFeatures.game_id == SkaterGameLog.game_id)
-            & (SkaterGameFeatures.player_id == SkaterGameLog.player_id),
-        )
+        .join(Player, Player.id == SkaterGameLog.player_id)
     )
-    result = await db.execute(stmt)
-    rows = result.mappings().all()
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame(rows)
+    if player_ids is not None:
+        stmt = stmt.where(SkaterGameLog.player_id.in_(player_ids))
+    if seasons is not None:
+        stmt = stmt.where(SkaterGameLog.season.in_(seasons))
+    return _frame((await db.execute(stmt)).mappings().all())
 
-async def load_goalie_training_data(db: AsyncSession) -> pd.DataFrame:
-    is_home_expr = case(
-        (GoalieGameLog.home_away == "HOME", 1),
-        else_=0,
-    ).label("is_home")
+async def load_game_mates(db: AsyncSession, game_ids: list[int]) -> pd.DataFrame:
+    """Every skater's ice time, PP time, shots and xG in `game_ids` (the inputs of `features.skater_shares`)."""
+    stmt = (select(SkaterGameLog.game_id, SkaterGameLog.player_team_tricode.label("team"), SkaterGameLog.player_id,
+                   Player.position, SkaterGameLog.toi, SkaterGameLog.pp_toi, SkaterGameLog.shots_on_goal,
+                   SkaterGameLog.x_goals)
+            .join(Player, Player.id == SkaterGameLog.player_id).where(SkaterGameLog.game_id.in_(game_ids)))
+    rows = (await db.execute(stmt)).mappings().all()
+    return pd.DataFrame([dict(r) for r in rows], columns=["game_id", "team", "player_id", "position", "toi", "pp_toi",
+                                                          "shots_on_goal", "x_goals"])
 
-    stmt = (
-        select(
-            GoalieGameFeatures.game_id,
-            GoalieGameFeatures.player_id,
-            GoalieGameFeatures.rolling_x_goals_against,
-            GoalieGameFeatures.rolling_goals_against,
-            GoalieGameFeatures.rolling_sog,
-            GoalieGameFeatures.rolling_flurry_adjusted_x_goals,
-            GoalieGameFeatures.rolling_high_danger_x_goals,
-            GoalieGameFeatures.rolling_x_sog,
-            GoalieGameFeatures.rolling_high_danger_shots,
-            GoalieGameFeatures.rolling_rebounds,
-            GoalieGameFeatures.rolling_x_rebounds,
-            GoalieGameFeatures.rolling_freeze,
-            GoalieGameFeatures.rolling_x_freeze,
-            is_home_expr,
-            GoalieGameLog.goals_against,
-            GoalieGameLog.sog,
-        )
-        .join(
-            GoalieGameLog,
-            (GoalieGameFeatures.game_id == GoalieGameLog.game_id)
-            & (GoalieGameFeatures.player_id == GoalieGameLog.player_id),
-        )
+async def load_current_rosters(db: AsyncSession) -> pd.DataFrame:
+    stmt = select(Player.id.label("player_id"), Player.current_team_tri_code.label("team"), Player.position).where(
+        Player.current_team_tri_code.is_not(None))
+    df = _frame((await db.execute(stmt)).mappings().all())
+    return df if not df.empty else pd.DataFrame(columns=["player_id", "team", "position"])
+
+async def load_goalie_logs(db: AsyncSession, player_ids: list[int] | None = None) -> pd.DataFrame:
+    stmt = select(
+        GoalieGameLog.game_id, GoalieGameLog.player_id, GoalieGameLog.season, GoalieGameLog.game_date,
+        GoalieGameLog.player_team_tricode.label("team"), GoalieGameLog.opposing_team_tricode.label("opponent"),
+        _is_home(GoalieGameLog.home_away), GoalieGameLog.toi,
+        GoalieGameLog.goals_against, GoalieGameLog.x_goals_against, GoalieGameLog.sog, GoalieGameLog.x_sog,
+        GoalieGameLog.flurry_adjusted_x_goals, GoalieGameLog.high_danger_x_goals, GoalieGameLog.high_danger_shots,
+        GoalieGameLog.rebounds, GoalieGameLog.x_rebounds,
     )
-    result = await db.execute(stmt)
-    rows = result.mappings().all()
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame(rows)
+    if player_ids is not None:
+        stmt = stmt.where(GoalieGameLog.player_id.in_(player_ids))
+    return _frame((await db.execute(stmt)).mappings().all())
 
-async def load_team_training_data(db: AsyncSession) -> pd.DataFrame:
-    is_home_expr = case(
-        (TeamGameLog.home_away == "HOME", 1),
-        else_=0,
-    ).label("is_home")
-
-    _BASE_STATS = [
-        "goals", "x_goals", "shot_attempts", "high_danger_shots",
-        "points", "primary_assists", "avg_on_ice_x_goals_percentage",
-        "avg_game_score", "goals_against", "x_goals_against",
-        "sog_against", "high_danger_shots_against",
-        "high_danger_x_goals_against", "flurry_adjusted_x_goals_against",
-    ]
-
-    self_feature_cols = []
-    opp_feature_cols = []
-    OppFeatures = aliased(TeamGameFeatures)
-
-    for stat in _BASE_STATS:
-        col_name = f"rolling_{stat}_5g"
-        self_feature_cols.append(getattr(TeamGameFeatures, col_name))
-        opp_feature_cols.append(
-            getattr(OppFeatures, col_name).label(f"opp_{col_name}")
-        )
-
-    stmt = (
-        select(
-            TeamGameFeatures.game_id,
-            TeamGameFeatures.team_tri_code,
-            *self_feature_cols,
-            is_home_expr,
-            *opp_feature_cols,
-            TeamGameLog.goals,
-            TeamGameLog.goals_against,
-        )
-        .join(
-            TeamGameLog,
-            (TeamGameFeatures.game_id == TeamGameLog.game_id)
-            & (TeamGameFeatures.team_tri_code == TeamGameLog.team_tri_code),
-        )
-        .join(
-            OppFeatures,
-            (TeamGameFeatures.game_id == OppFeatures.game_id)
-            & (TeamGameFeatures.team_tri_code != OppFeatures.team_tri_code),
-        )
+async def load_team_stats(db: AsyncSession) -> pd.DataFrame:
+    """Each team's totals per game (regular season and playoffs), named as in predictions.features.TEAM_STATS."""
+    t = TeamGameStats
+    stmt = select(
+        t.game_id, t.team_tri_code.label("team"), t.opposing_team_tri_code.label("opponent"), t.season, t.game_date,
+        _is_home(t.home_away), t.playoff,
+        t.goals_for.label("gf"), t.goals_against.label("ga"), t.x_goals_for.label("xgf"), t.x_goals_against.label("xga"),
+        t.shot_attempts_for.label("saf"), t.shot_attempts_against.label("saa"),
+        t.x_goals_for_5v5.label("xgf5"), t.x_goals_against_5v5.label("xga5"),
+        t.shot_attempts_for_5v5.label("cf5"), t.shot_attempts_against_5v5.label("ca5"),
+        t.goals_for_5v5.label("gf5"), t.goals_against_5v5.label("ga5"),
     )
-    result = await db.execute(stmt)
-    rows = result.mappings().all()
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame(rows)
+    df = _frame((await db.execute(stmt)).mappings().all())
+    if not df.empty:
+        stats = ["gf", "ga", "xgf", "xga", "saf", "saa", "xgf5", "xga5", "cf5", "ca5", "gf5", "ga5"]
+        df[stats] = df[stats].astype(float)
+    return df
+
+async def load_games(db: AsyncSession) -> pd.DataFrame:
+    """All scheduled and played games. `season` uses MoneyPuck's start-year format (20252026 -> 2025);
+    scores are only kept for finished games so live and future games never count as results."""
+    stmt = select(Games.id, Games.season, Games.date, Games.home_team_tri_code, Games.away_team_tri_code,
+                  Games.home_score, Games.away_score, Games.game_state)
+    df = _frame((await db.execute(stmt)).mappings().all())
+    if df.empty:
+        return df
+    df["season"] = df["season"] // 10000
+    finished = df["game_state"].isin(FINISHED_GAME_STATES)
+    df[["home_score", "away_score"]] = df[["home_score", "away_score"]].astype(float).where(finished)
+    return df.drop(columns="game_state")
+
+async def load_game_odds(db: AsyncSession) -> pd.DataFrame:
+    stmt = select(GameOdds.game_id, GameOdds.home_prob_novig, GameOdds.total_line)
+    df = _frame((await db.execute(stmt)).mappings().all())
+    return df if not df.empty else pd.DataFrame(columns=["game_id", "home_prob_novig", "total_line"])
+
+async def load_known_starters(db: AsyncSession) -> pd.DataFrame | None:
+    """Stored starters (game_starters: ESPN pre-game picks and actual starters), or None if the table is missing or
+    unreadable (features then fall back to the projection and the goalie with the most ice time)."""
+    from app.crud.game_starters import load_game_starters
+    try:
+        # a savepoint, so a failed read doesn't roll back the caller's pending writes (the prediction log's rows)
+        async with db.begin_nested():
+            return await load_game_starters(db)
+    except Exception as e:
+        print(f"Could not load game_starters, using projected starters: {e!r}")
+        return None

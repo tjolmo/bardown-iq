@@ -1,0 +1,168 @@
+{
+ "events": [
+  {
+   "id": "401458838",
+   "date": "2022-11-16T00:00Z",
+   "season": {
+    "year": 2023,
+    "type": 2,
+    "slug": "regular-season"
+   },
+   "status": {
+    "type": {
+     "name": "STATUS_FINAL",
+     "completed": true
+    }
+   },
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "4",
+       "team": {
+        "abbreviation": "BUF"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "5",
+       "team": {
+        "abbreviation": "VAN"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401458840",
+   "date": "2022-11-16T00:00Z",
+   "season": {
+    "year": 2023,
+    "type": 2,
+    "slug": "regular-season"
+   },
+   "status": {
+    "type": {
+     "name": "STATUS_FINAL",
+     "completed": true
+    }
+   },
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "5",
+       "team": {
+        "abbreviation": "FLA"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "2",
+       "team": {
+        "abbreviation": "WSH"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401458841",
+   "date": "2022-11-16T00:00Z",
+   "season": {
+    "year": 2023,
+    "type": 2,
+    "slug": "regular-season"
+   },
+   "status": {
+    "type": {
+     "name": "STATUS_FINAL",
+     "completed": true
+    }
+   },
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "1",
+       "team": {
+        "abbreviation": "MTL"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "5",
+       "team": {
+        "abbreviation": "NJ"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401458843",
+   "date": "2022-11-16T00:00Z",
+   "season": {
+    "year": 2023,
+    "type": 2,
+    "slug": "regular-season"
+   },
+   "status": {
+    "type": {
+     "name": "STATUS_FINAL",
+     "completed": true
+    }
+   },
+   "competitions": [
+    {
+     "status": {
+      "type": {
+       "name": "STATUS_FINAL",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "2",
+       "team": {
+        "abbreviation": "PIT"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "5",
+       "team": {
+        "abbreviation": "TOR"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

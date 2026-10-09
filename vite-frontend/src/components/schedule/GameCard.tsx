@@ -1,6 +1,7 @@
 import type { FC } from "react";
 import type { TeamScheduledGame } from "../../types/teams";
 import { TeamCard } from "./TeamCard";
+import { formatBook, formatOdds } from "../../utils/books";
 
 interface GameCardProps {
   game: TeamScheduledGame;
@@ -102,6 +103,13 @@ export const GameCard: FC<GameCardProps> = ({ game, index }) => {
               <p className="text-[10px] font-semibold tracking-widest text-slate-400 uppercase">
                 Current Vegas Moneyline
               </p>
+              {game.moneyline.best_away != null && game.moneyline.best_home != null && (
+                <p className="text-[10px] text-slate-400 text-center leading-snug tabular-nums">
+                  Best: {formatOdds(game.moneyline.best_away)} {formatBook(game.moneyline.best_away_book)}
+                  {" · "}
+                  {formatOdds(game.moneyline.best_home)} {formatBook(game.moneyline.best_home_book)}
+                </p>
+              )}
             </>
           )}
           <p className="text-xs text-slate-500 font-medium text-center leading-snug">

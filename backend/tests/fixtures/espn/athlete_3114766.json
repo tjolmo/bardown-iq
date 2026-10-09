@@ -1,0 +1,21 @@
+{
+ "id": "3114766",
+ "firstName": "Alex",
+ "lastName": "Tuch",
+ "fullName": "Alex Tuch",
+ "displayName": "Alex Tuch",
+ "dateOfBirth": "1996-05-10T07:00Z",
+ "jersey": "89",
+ "position": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/positions/3?lang=en&region=us",
+  "id": "3",
+  "name": "Right Wing",
+  "displayName": "Right Wing",
+  "abbreviation": "RW",
+  "leaf": true,
+  "parent": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/positions/20?lang=en&region=us"
+  }
+ },
+ "active": true
+}

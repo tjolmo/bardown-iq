@@ -131,6 +131,10 @@ class PlayerPredictionOut(BaseModel):
     prob_goal: float | None = None
     prob_assist: float | None = None
     prob_point: float | None = None
+    shots_on_goal: float | None = None
+    blocked_shots: float | None = None
+    hits: float | None = None
+    pp_points: float | None = None
 
     class Config:
         from_attributes = True
@@ -140,10 +144,22 @@ class GoaliePredictionOut(BaseModel):
     goals_against: float
     saves: float
     save_percentage: float | None = None
+    # the numbers above assume he starts; whether he is his team's expected starter, and how sure that is
+    # ("confirmed", "probable" or "projected"; None when unknown)
+    starting: bool | None = None
+    starter_status: str | None = None
 
     class Config:
         from_attributes = True
     
+class PropBookPriceOut(BaseModel):
+    """One book's price for a prop side (the "+N books" list under a prop card)"""
+    book: str
+    odds: float
+    line: float
+    # one of the books the shown best price and the consensus come from (books.CONSENSUS_BOOKS)
+    consensus: bool = True
+
 class PlayerPropOut(BaseModel):
     """Output model for a player's prop"""
     game_id: int
@@ -152,3 +168,40 @@ class PlayerPropOut(BaseModel):
     over_under: str
     odds: float
     line: float
+    # the model's chance this side wins, and its expected return per unit at these odds (None if no model yet)
+    model_prob: float | None = None
+    edge: float | None = None
+    # where the price came from: "propline" (best price across the consensus books at the consensus line; `book`
+    # is the book with that price) or "espn" (one book's market from ESPN's feed, e.g. hits, which PropLine has no
+    # market for)
+    source: str = "propline"
+    book: str | None = None
+    # every other stored book's price for this side (PropLine rows only)
+    other_books: list[PropBookPriceOut] = []
+class EdgePlayerOut(BaseModel):
+    """A player on the "players with edge" board: at least one prop side with a positive edge"""
+    player_id: int
+    first_name: str
+    last_name: str
+    headshot: str | None = None
+    position: str | None = None
+    team: str | None = None
+    opponent: str
+    home: bool
+    game_id: int
+    start_time: str | None = None
+    # goalies: how sure the starter pick is (confirmed / probable / projected); saves props assume he starts
+    starter_status: str | None = None
+    best_edge: float
+    # every priced prop of the player's game, best edge first
+    props: list[PlayerPropOut]
+
+class EdgeBoardOut(BaseModel):
+    """The next slate's players with edge"""
+    game_date: int | None
+    built_at: str
+    # players whose props could be priced (the denominator of the board)
+    players_priced: int
+    # a background rebuild was started because this copy is stale
+    refreshing: bool = False
+    players: list[EdgePlayerOut]

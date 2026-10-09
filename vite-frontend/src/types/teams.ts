@@ -41,6 +41,14 @@ export interface TeamGamePrediction {
 }
 
 export interface TeamMoneyline {
+  // median price of the consensus books (PropLine), or NHL's partner feed when PropLine has none
   home: number;
   away: number;
+  // best price per side among the consensus books, and which book
+  best_home?: number | null;
+  best_home_book?: string | null;
+  best_away?: number | null;
+  best_away_book?: string | null;
+  n_books?: number | null;
+  source?: "propline" | "nhl";
 }

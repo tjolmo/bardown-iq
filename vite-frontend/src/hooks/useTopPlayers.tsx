@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import type { PlayerFullData } from "../types/player";
 import { getTopPlayers } from "../api/player";
 
-export function useTopPlayers(season: number, n: number, player_type: "skaters" | "goalies") {
+export function useTopPlayers(season: string, n: number, player_type: "skaters" | "goalies") {
     const [data, setData] = useState<PlayerFullData[] | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<Error | null>(null);

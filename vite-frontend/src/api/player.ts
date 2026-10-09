@@ -10,7 +10,7 @@ export const getPlayerUpcomingGame = (id: number) =>
 export const getSearchPlayer = (query: string, limit: number = 10) =>
     apiGet<SearchPlayerResult[]>(`/players/search?q=${encodeURIComponent(query)}&limit=${limit}`);
 
-export const getTopPlayers = (season: number, n: number, player_type: "skaters" | "goalies") =>
+export const getTopPlayers = (season: string, n: number, player_type: "skaters" | "goalies") =>
     apiGet<PlayerFullData[]>(`/players/top_players/${player_type}/${season}/${n}`);
 
 export const getPlayerProps = (player_id: number) =>

@@ -12,6 +12,7 @@ import DailySchedulePage from "./pages/DailySchedulePage";
 import TeamsPage from "./pages/TeamsPage";
 import SearchResultsPage from "./pages/SearchResultsPage";
 import TopPlayersPage from "./pages/TopPlayersPage";
+import EdgePlayersPage from "./pages/EdgePlayersPage";
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
       <Route path="/teams" element={<TeamsPage />} />
       <Route path="/search" element={<SearchResultsPage />} />
       <Route path="/top-players/:player_type/:season/:n" element={<TopPlayersPage />} />
+      <Route path="/edges" element={<EdgePlayersPage />} />
     </Routes>
   );
 }

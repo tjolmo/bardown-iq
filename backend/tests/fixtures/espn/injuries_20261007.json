@@ -1,0 +1,2176 @@
+{
+ "timestamp": "2026-10-07T19:34:31Z",
+ "status": "success",
+ "season": {
+  "year": 2027,
+  "type": 2,
+  "name": "Regular Season",
+  "displayName": "2026-27"
+ },
+ "injuries": [
+  {
+   "id": "25",
+   "displayName": "Anaheim Ducks",
+   "injuries": [
+    {
+     "id": "595032",
+     "longComment": "",
+     "shortComment": "Helleson (lower body) hopes to return at the end of Anaheim's upcoming road trip, per Zach Cavanagh of The Sporting Tribune on Wednesday.",
+     "status": "Injured Reserve",
+     "date": "2026-10-07T18:11Z",
+     "athlete": {
+      "firstName": "Drew",
+      "lastName": "Helleson",
+      "displayName": "Drew Helleson",
+      "shortName": "D. Helleson",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/4565270",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "4",
+       "name": "Defense",
+       "displayName": "Defense",
+       "abbreviation": "D",
+       "leaf": true
+      },
+      "team": {
+       "id": "25",
+       "uid": "s:70~l:90~t:25",
+       "slug": "anaheim-ducks",
+       "name": "Ducks",
+       "abbreviation": "ANA",
+       "displayName": "Anaheim Ducks"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR",
+       "abbreviation": "IR"
+      },
+      "type": "Lower Body",
+      "returnDate": "2026-10-10"
+     }
+    },
+    {
+     "id": "594251",
+     "longComment": "",
+     "shortComment": "Terry (hip) was moved from the non-roster list to long-term injured reserve Wednesday, Zach Cavanagh of The Sporting Tribune reports.",
+     "status": "Injured Reserve",
+     "date": "2026-09-30T14:53Z",
+     "athlete": {
+      "firstName": "Troy",
+      "lastName": "Terry",
+      "displayName": "Troy Terry",
+      "shortName": "T. Terry",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/3942905",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "3",
+       "name": "Right Wing",
+       "displayName": "Right Wing",
+       "abbreviation": "RW",
+       "leaf": true
+      },
+      "team": {
+       "id": "25",
+       "uid": "s:70~l:90~t:25",
+       "slug": "anaheim-ducks",
+       "name": "Ducks",
+       "abbreviation": "ANA",
+       "displayName": "Anaheim Ducks"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-LT",
+       "abbreviation": "IR-LT"
+      },
+      "type": "Hip",
+      "detail": "Surgery",
+      "returnDate": "2026-11-21"
+     }
+    },
+    {
+     "id": "594155",
+     "longComment": "",
+     "shortComment": "ir",
+     "status": "Injured Reserve",
+     "date": "2026-09-29T00:06Z",
+     "athlete": {
+      "firstName": "Ian",
+      "lastName": "Moore",
+      "displayName": "Ian Moore",
+      "shortName": "I. Moore",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/5188523",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "4",
+       "name": "Defense",
+       "displayName": "Defense",
+       "abbreviation": "D",
+       "leaf": true
+      },
+      "team": {
+       "id": "25",
+       "uid": "s:70~l:90~t:25",
+       "slug": "anaheim-ducks",
+       "name": "Ducks",
+       "abbreviation": "ANA",
+       "displayName": "Anaheim Ducks"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR",
+       "abbreviation": "IR"
+      },
+      "type": "Lower Body",
+      "detail": "Not Specified",
+      "side": "Not Specified",
+      "returnDate": "2026-10-16"
+     }
+    }
+   ]
+  },
+  {
+   "id": "2",
+   "displayName": "Buffalo Sabres",
+   "injuries": [
+    {
+     "id": "594923",
+     "longComment": "",
+     "shortComment": "day-to-day",
+     "status": "Day-To-Day",
+     "date": "2026-10-07T02:34Z",
+     "athlete": {
+      "firstName": "Josh",
+      "lastName": "Doan",
+      "displayName": "Josh Doan",
+      "shortName": "J. Doan",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/4874870",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "3",
+       "name": "Right Wing",
+       "displayName": "Right Wing",
+       "abbreviation": "RW",
+       "leaf": true
+      },
+      "team": {
+       "id": "2",
+       "uid": "s:70~l:90~t:2",
+       "slug": "buffalo-sabres",
+       "name": "Sabres",
+       "abbreviation": "BUF",
+       "displayName": "Buffalo Sabres"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "6",
+      "name": "INJURY_STATUS_DAYTODAY",
+      "description": "day-to-day",
+      "abbreviation": "DD"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "Day-To-Day",
+       "abbreviation": "Day-To-Day"
+      },
+      "type": "Lower Body",
+      "returnDate": "2026-10-08"
+     }
+    },
+    {
+     "id": "594873",
+     "longComment": "",
+     "shortComment": "Zucker (abdomen) participated in Tuesday's morning skate but is still a few weeks away from returning to game action, Matthew Fairburn of The Athletic reports.",
+     "status": "Injured Reserve",
+     "date": "2026-10-06T15:10Z",
+     "athlete": {
+      "firstName": "Jason",
+      "lastName": "Zucker",
+      "displayName": "Jason Zucker",
+      "shortName": "J. Zucker",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/2593315",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "2",
+       "name": "Left Wing",
+       "displayName": "Left Wing",
+       "abbreviation": "LW",
+       "leaf": true
+      },
+      "team": {
+       "id": "2",
+       "uid": "s:70~l:90~t:2",
+       "slug": "buffalo-sabres",
+       "name": "Sabres",
+       "abbreviation": "BUF",
+       "displayName": "Buffalo Sabres"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR",
+       "abbreviation": "IR"
+      },
+      "type": "Abdomen",
+      "detail": "Surgery",
+      "side": "Not Specified",
+      "returnDate": "2026-10-15"
+     }
+    },
+    {
+     "id": "594872",
+     "longComment": "",
+     "shortComment": "Lyon (upper body) was spotted practicing at Tuesday's optional morning skate, per Matthew Fairburn of The Athletic.",
+     "status": "Injured Reserve",
+     "date": "2026-10-06T15:07Z",
+     "athlete": {
+      "firstName": "Alex",
+      "lastName": "Lyon",
+      "displayName": "Alex Lyon",
+      "shortName": "A. Lyon",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/3654006",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "5",
+       "name": "Goaltender",
+       "displayName": "Goaltender",
+       "abbreviation": "G",
+       "leaf": false
+      },
+      "team": {
+       "id": "2",
+       "uid": "s:70~l:90~t:2",
+       "slug": "buffalo-sabres",
+       "name": "Sabres",
+       "abbreviation": "BUF",
+       "displayName": "Buffalo Sabres"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR",
+       "abbreviation": "IR"
+      },
+      "type": "Upper Body",
+      "returnDate": "2026-10-10"
+     }
+    },
+    {
+     "id": "594177",
+     "longComment": "",
+     "shortComment": "Timmins (lower body) doesn't have a timeline for his return yet, according to Heather Engel of NHL.com on Tuesday.",
+     "status": "Injured Reserve",
+     "date": "2026-09-29T17:28Z",
+     "athlete": {
+      "firstName": "Conor",
+      "lastName": "Timmins",
+      "displayName": "Conor Timmins",
+      "shortName": "C. Timmins",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/4233868",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "4",
+       "name": "Defense",
+       "displayName": "Defense",
+       "abbreviation": "D",
+       "leaf": true
+      },
+      "team": {
+       "id": "2",
+       "uid": "s:70~l:90~t:2",
+       "slug": "buffalo-sabres",
+       "name": "Sabres",
+       "abbreviation": "BUF",
+       "displayName": "Buffalo Sabres"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR",
+       "abbreviation": "IR"
+      },
+      "type": "Lower Body",
+      "detail": "Not Specified",
+      "side": "Not Specified",
+      "returnDate": "2026-10-17"
+     }
+    },
+    {
+     "id": "594120",
+     "longComment": "",
+     "shortComment": "Leinonen (lower body) was placed on the injured non-roster list Monday.",
+     "status": "Injured Reserve",
+     "date": "2026-09-28T20:58Z",
+     "athlete": {
+      "firstName": "Topias",
+      "lastName": "Leinonen",
+      "displayName": "Topias Leinonen",
+      "shortName": "T. Leinonen",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/5080222",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "5",
+       "name": "Goaltender",
+       "displayName": "Goaltender",
+       "abbreviation": "G",
+       "leaf": false
+      },
+      "team": {
+       "id": "2",
+       "uid": "s:70~l:90~t:2",
+       "slug": "buffalo-sabres",
+       "name": "Sabres",
+       "abbreviation": "BUF",
+       "displayName": "Buffalo Sabres"
+      },
+      "status": {
+       "id": "4",
+       "name": "Minors",
+       "type": "minors",
+       "abbreviation": "Minors"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Lower Body",
+      "returnDate": "2026-10-10"
+     }
+    },
+    {
+     "id": "594118",
+     "longComment": "",
+     "shortComment": "ir-nr",
+     "status": "Injured Reserve",
+     "date": "2026-09-28T20:52Z",
+     "athlete": {
+      "firstName": "Jack",
+      "lastName": "Rathbone",
+      "displayName": "Jack Rathbone",
+      "shortName": "J. Rathbone",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/4419767",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "4",
+       "name": "Defense",
+       "displayName": "Defense",
+       "abbreviation": "D",
+       "leaf": true
+      },
+      "team": {
+       "id": "2",
+       "uid": "s:70~l:90~t:2",
+       "slug": "buffalo-sabres",
+       "name": "Sabres",
+       "abbreviation": "BUF",
+       "displayName": "Buffalo Sabres"
+      },
+      "status": {
+       "id": "4",
+       "name": "Minors",
+       "type": "minors",
+       "abbreviation": "Minors"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Undisclosed",
+      "detail": "Not Specified",
+      "side": "Not Specified",
+      "returnDate": "2026-10-24"
+     }
+    }
+   ]
+  },
+  {
+   "id": "6",
+   "displayName": "Edmonton Oilers",
+   "injuries": [
+    {
+     "id": "594356",
+     "longComment": "",
+     "shortComment": "Hyman (undisclosed) is expected to be out of action for two weeks, Oilers play-by-play announcer Jack Michaels reports Thursday.",
+     "status": "Out",
+     "date": "2026-10-01T19:00Z",
+     "athlete": {
+      "firstName": "Zach",
+      "lastName": "Hyman",
+      "displayName": "Zach Hyman",
+      "shortName": "Z. Hyman",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/5509",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "2",
+       "name": "Left Wing",
+       "displayName": "Left Wing",
+       "abbreviation": "LW",
+       "leaf": true
+      },
+      "team": {
+       "id": "6",
+       "uid": "s:70~l:90~t:6",
+       "slug": "edmonton-oilers",
+       "name": "Oilers",
+       "abbreviation": "EDM",
+       "displayName": "Edmonton Oilers"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "4",
+      "name": "INJURY_STATUS_OUT",
+      "description": "out",
+      "abbreviation": "O"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "OUT",
+       "abbreviation": "OUT"
+      },
+      "type": "Undisclosed",
+      "detail": "Not Specified",
+      "side": "Not Specified",
+      "returnDate": "2026-10-17"
+     }
+    },
+    {
+     "id": "594322",
+     "longComment": "",
+     "shortComment": "Regula (undisclosed) was designated for long-term injured reserve Thursday.",
+     "status": "Injured Reserve",
+     "date": "2026-10-01T14:11Z",
+     "athlete": {
+      "firstName": "Alec",
+      "lastName": "Regula",
+      "displayName": "Alec Regula",
+      "shortName": "A. Regula",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/4331611",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "4",
+       "name": "Defense",
+       "displayName": "Defense",
+       "abbreviation": "D",
+       "leaf": true
+      },
+      "team": {
+       "id": "6",
+       "uid": "s:70~l:90~t:6",
+       "slug": "edmonton-oilers",
+       "name": "Oilers",
+       "abbreviation": "EDM",
+       "displayName": "Edmonton Oilers"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-LT",
+       "abbreviation": "IR-LT"
+      },
+      "type": "Undisclosed",
+      "returnDate": "2026-10-24"
+     }
+    },
+    {
+     "id": "594320",
+     "longComment": "",
+     "shortComment": "The Oilers placed Nugent-Hopkins (lower body) on injured reserve Thursday.",
+     "status": "Injured Reserve",
+     "date": "2026-10-01T14:08Z",
+     "athlete": {
+      "firstName": "Ryan",
+      "lastName": "Nugent-Hopkins",
+      "displayName": "Ryan Nugent-Hopkins",
+      "shortName": "R. Nugent-Hopkins",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/2562624",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "1",
+       "name": "Center",
+       "displayName": "Center",
+       "abbreviation": "C",
+       "leaf": true
+      },
+      "team": {
+       "id": "6",
+       "uid": "s:70~l:90~t:6",
+       "slug": "edmonton-oilers",
+       "name": "Oilers",
+       "abbreviation": "EDM",
+       "displayName": "Edmonton Oilers"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR",
+       "abbreviation": "IR"
+      },
+      "type": "Lower Body",
+      "returnDate": "2026-10-13"
+     }
+    },
+    {
+     "id": "594319",
+     "longComment": "",
+     "shortComment": "Savoie (lower body) was shifted to long-term injured reserve Thursday.",
+     "status": "Injured Reserve",
+     "date": "2026-10-01T14:05Z",
+     "athlete": {
+      "firstName": "Matt",
+      "lastName": "Savoie",
+      "displayName": "Matt Savoie",
+      "shortName": "M. Savoie",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/5080153",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "1",
+       "name": "Center",
+       "displayName": "Center",
+       "abbreviation": "C",
+       "leaf": true
+      },
+      "team": {
+       "id": "6",
+       "uid": "s:70~l:90~t:6",
+       "slug": "edmonton-oilers",
+       "name": "Oilers",
+       "abbreviation": "EDM",
+       "displayName": "Edmonton Oilers"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-LT",
+       "abbreviation": "IR-LT"
+      },
+      "type": "Lower Body",
+      "detail": "Not Specified",
+      "side": "Not Specified",
+      "returnDate": "2026-11-24"
+     }
+    },
+    {
+     "id": "594179",
+     "longComment": "",
+     "shortComment": "Andersen (knee) isn't expected back until \"maybe\" December, head coach Mike Babcock told NHL.com on Tuesday.",
+     "status": "Injured Reserve",
+     "date": "2026-09-29T17:53Z",
+     "athlete": {
+      "firstName": "Frederik",
+      "lastName": "Andersen",
+      "displayName": "Frederik Andersen",
+      "shortName": "F. Andersen",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/2517899",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "5",
+       "name": "Goaltender",
+       "displayName": "Goaltender",
+       "abbreviation": "G",
+       "leaf": false
+      },
+      "team": {
+       "id": "6",
+       "uid": "s:70~l:90~t:6",
+       "slug": "edmonton-oilers",
+       "name": "Oilers",
+       "abbreviation": "EDM",
+       "displayName": "Edmonton Oilers"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Knee",
+      "returnDate": "2026-12-30"
+     }
+    },
+    {
+     "id": "594178",
+     "longComment": "",
+     "shortComment": "Janmark (undisclosed) does not have a timetable for his return from injury.",
+     "status": "Injured Reserve",
+     "date": "2026-09-29T17:52Z",
+     "athlete": {
+      "firstName": "Mattias",
+      "lastName": "Janmark",
+      "displayName": "Mattias Janmark",
+      "shortName": "M. Janmark",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/3042085",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "1",
+       "name": "Center",
+       "displayName": "Center",
+       "abbreviation": "C",
+       "leaf": true
+      },
+      "team": {
+       "id": "6",
+       "uid": "s:70~l:90~t:6",
+       "slug": "edmonton-oilers",
+       "name": "Oilers",
+       "abbreviation": "EDM",
+       "displayName": "Edmonton Oilers"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR",
+       "abbreviation": "IR"
+      },
+      "type": "Undisclosed",
+      "detail": "Surgery",
+      "returnDate": "2026-10-15"
+     }
+    },
+    {
+     "id": "594180",
+     "longComment": "",
+     "shortComment": "ir-nr",
+     "status": "Injured Reserve",
+     "date": "2026-09-29T16:23Z",
+     "athlete": {
+      "firstName": "James",
+      "lastName": "Stefan",
+      "displayName": "James Stefan",
+      "shortName": "J. Stefan",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/5207829",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "3",
+       "name": "Right Wing",
+       "displayName": "Right Wing",
+       "abbreviation": "RW",
+       "leaf": true
+      },
+      "team": {
+       "id": "6",
+       "uid": "s:70~l:90~t:6",
+       "slug": "edmonton-oilers",
+       "name": "Oilers",
+       "abbreviation": "EDM",
+       "displayName": "Edmonton Oilers"
+      },
+      "status": {
+       "id": "4",
+       "name": "Minors",
+       "type": "minors",
+       "abbreviation": "Minors"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Undisclosed",
+      "returnDate": "2026-10-10"
+     }
+    },
+    {
+     "id": "594179",
+     "longComment": "",
+     "shortComment": "ir-nr",
+     "status": "Injured Reserve",
+     "date": "2026-09-29T16:22Z",
+     "athlete": {
+      "firstName": "Atro",
+      "lastName": "Leppanen",
+      "displayName": "Atro Leppanen",
+      "shortName": "A. Leppanen",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/5278661",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "4",
+       "name": "Defense",
+       "displayName": "Defense",
+       "abbreviation": "D",
+       "leaf": true
+      },
+      "team": {
+       "id": "6",
+       "uid": "s:70~l:90~t:6",
+       "slug": "edmonton-oilers",
+       "name": "Oilers",
+       "abbreviation": "EDM",
+       "displayName": "Edmonton Oilers"
+      },
+      "status": {
+       "id": "4",
+       "name": "Minors",
+       "type": "minors",
+       "abbreviation": "Minors"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Undisclosed",
+      "returnDate": "2026-10-17"
+     }
+    }
+   ]
+  },
+  {
+   "id": "26",
+   "displayName": "Florida Panthers",
+   "injuries": [
+    {
+     "id": "594983",
+     "longComment": "",
+     "shortComment": "day-to-day",
+     "status": "Day-To-Day",
+     "date": "2026-10-07T13:13Z",
+     "athlete": {
+      "firstName": "Aaron",
+      "lastName": "Ekblad",
+      "displayName": "Aaron Ekblad",
+      "shortName": "A. Ekblad",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/3114717",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "4",
+       "name": "Defense",
+       "displayName": "Defense",
+       "abbreviation": "D",
+       "leaf": true
+      },
+      "team": {
+       "id": "26",
+       "uid": "s:70~l:90~t:26",
+       "slug": "florida-panthers",
+       "name": "Panthers",
+       "abbreviation": "FLA",
+       "displayName": "Florida Panthers"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "6",
+      "name": "INJURY_STATUS_DAYTODAY",
+      "description": "day-to-day",
+      "abbreviation": "DD"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "Day-To-Day",
+       "abbreviation": "Day-To-Day"
+      },
+      "type": "Personal",
+      "returnDate": "2026-10-10"
+     }
+    },
+    {
+     "id": "594952",
+     "longComment": "",
+     "shortComment": "day-to-day",
+     "status": "Day-To-Day",
+     "date": "2026-10-07T05:29Z",
+     "athlete": {
+      "firstName": "Brad",
+      "lastName": "Marchand",
+      "displayName": "Brad Marchand",
+      "shortName": "B. Marchand",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/3852",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "2",
+       "name": "Left Wing",
+       "displayName": "Left Wing",
+       "abbreviation": "LW",
+       "leaf": true
+      },
+      "team": {
+       "id": "26",
+       "uid": "s:70~l:90~t:26",
+       "slug": "florida-panthers",
+       "name": "Panthers",
+       "abbreviation": "FLA",
+       "displayName": "Florida Panthers"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "6",
+      "name": "INJURY_STATUS_DAYTODAY",
+      "description": "day-to-day",
+      "abbreviation": "DD"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "Day-To-Day",
+       "abbreviation": "Day-To-Day"
+      },
+      "type": "Leg",
+      "side": "Left",
+      "returnDate": "2026-10-10"
+     }
+    },
+    {
+     "id": "594906",
+     "longComment": "",
+     "shortComment": "Barkov (lower body) will be out for approximately 6-8 weeks, Jameson Olive of the Panthers' official site reports Tuesday.",
+     "status": "Injured Reserve",
+     "date": "2026-10-06T18:38Z",
+     "athlete": {
+      "firstName": "Aleksander",
+      "lastName": "Barkov",
+      "displayName": "Aleksander Barkov",
+      "shortName": "A. Barkov",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/3041970",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "1",
+       "name": "Center",
+       "displayName": "Center",
+       "abbreviation": "C",
+       "leaf": true
+      },
+      "team": {
+       "id": "26",
+       "uid": "s:70~l:90~t:26",
+       "slug": "florida-panthers",
+       "name": "Panthers",
+       "abbreviation": "FLA",
+       "displayName": "Florida Panthers"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-LT",
+       "abbreviation": "IR-LT"
+      },
+      "type": "Lower Body",
+      "side": "Left",
+      "returnDate": "2026-11-27"
+     }
+    },
+    {
+     "id": "593266",
+     "longComment": "",
+     "shortComment": "Gadjovich (upper body) is out indefinitely, the team announced Thursday.",
+     "status": "Injured Reserve",
+     "date": "2026-09-17T20:53Z",
+     "athlete": {
+      "firstName": "Jonah",
+      "lastName": "Gadjovich",
+      "displayName": "Jonah Gadjovich",
+      "shortName": "J. Gadjovich",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/4233890",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "2",
+       "name": "Left Wing",
+       "displayName": "Left Wing",
+       "abbreviation": "LW",
+       "leaf": true
+      },
+      "team": {
+       "id": "26",
+       "uid": "s:70~l:90~t:26",
+       "slug": "florida-panthers",
+       "name": "Panthers",
+       "abbreviation": "FLA",
+       "displayName": "Florida Panthers"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-LT",
+       "abbreviation": "IR-LT"
+      },
+      "type": "Upper Body",
+      "detail": "Surgery",
+      "side": "Not Specified",
+      "returnDate": "2026-10-17"
+     }
+    }
+   ]
+  },
+  {
+   "id": "18",
+   "displayName": "San Jose Sharks",
+   "injuries": [
+    {
+     "id": "594911",
+     "longComment": "",
+     "shortComment": "Head coach Ryan Warsofsky said Tuesday that Celebrini (lower body) is considered day-to-day, Sheng Peng of San Jose Hockey Now reports.",
+     "status": "Day-To-Day",
+     "date": "2026-10-06T21:11Z",
+     "athlete": {
+      "firstName": "Macklin",
+      "lastName": "Celebrini",
+      "displayName": "Macklin Celebrini",
+      "shortName": "M. Celebrini",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/5206628",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "1",
+       "name": "Center",
+       "displayName": "Center",
+       "abbreviation": "C",
+       "leaf": true
+      },
+      "team": {
+       "id": "18",
+       "uid": "s:70~l:90~t:18",
+       "slug": "san-jose-sharks",
+       "name": "Sharks",
+       "abbreviation": "SJ",
+       "displayName": "San Jose Sharks"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "6",
+      "name": "INJURY_STATUS_DAYTODAY",
+      "description": "day-to-day",
+      "abbreviation": "DD"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "Day-To-Day",
+       "abbreviation": "Day-To-Day"
+      },
+      "type": "Lower Body",
+      "returnDate": "2026-10-08"
+     }
+    },
+    {
+     "id": "594147",
+     "longComment": "",
+     "shortComment": "Gaudette (upper body) will begin the 2026-27 regular season on the injured non-roster list, per Curtis Pashelka of The San Jose Mercury News.",
+     "status": "Injured Reserve",
+     "date": "2026-09-28T22:30Z",
+     "athlete": {
+      "firstName": "Adam",
+      "lastName": "Gaudette",
+      "displayName": "Adam Gaudette",
+      "shortName": "A. Gaudette",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/3942868",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "3",
+       "name": "Right Wing",
+       "displayName": "Right Wing",
+       "abbreviation": "RW",
+       "leaf": true
+      },
+      "team": {
+       "id": "18",
+       "uid": "s:70~l:90~t:18",
+       "slug": "san-jose-sharks",
+       "name": "Sharks",
+       "abbreviation": "SJ",
+       "displayName": "San Jose Sharks"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR",
+       "abbreviation": "IR"
+      },
+      "type": "Upper Body",
+      "returnDate": "2026-10-10"
+     }
+    },
+    {
+     "id": "594146",
+     "longComment": "",
+     "shortComment": "Barre-Boulet (undisclosed) will begin the 2026-27 regular season on injured reserve, per Curtis Pashelka of The San Jose Mercury News.",
+     "status": "Injured Reserve",
+     "date": "2026-09-28T22:21Z",
+     "athlete": {
+      "firstName": "Alex",
+      "lastName": "Barre-Boulet",
+      "displayName": "Alex Barre-Boulet",
+      "shortName": "A. Barre-Boulet",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/4270820",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "1",
+       "name": "Center",
+       "displayName": "Center",
+       "abbreviation": "C",
+       "leaf": true
+      },
+      "team": {
+       "id": "18",
+       "uid": "s:70~l:90~t:18",
+       "slug": "san-jose-sharks",
+       "name": "Sharks",
+       "abbreviation": "SJ",
+       "displayName": "San Jose Sharks"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR",
+       "abbreviation": "IR"
+      },
+      "type": "Undisclosed",
+      "returnDate": "2026-10-08"
+     }
+    },
+    {
+     "id": "594145",
+     "longComment": "",
+     "shortComment": "Musty (upper body) was put on non-roster injured reserve Monday, according to Curtis Pashelka of The San Jose Mercury News.",
+     "status": "Injured Reserve",
+     "date": "2026-09-28T22:20Z",
+     "athlete": {
+      "firstName": "Quentin",
+      "lastName": "Musty",
+      "displayName": "Quentin Musty",
+      "shortName": "Q. Musty",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/5149209",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "2",
+       "name": "Left Wing",
+       "displayName": "Left Wing",
+       "abbreviation": "LW",
+       "leaf": true
+      },
+      "team": {
+       "id": "18",
+       "uid": "s:70~l:90~t:18",
+       "slug": "san-jose-sharks",
+       "name": "Sharks",
+       "abbreviation": "SJ",
+       "displayName": "San Jose Sharks"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Upper Body",
+      "returnDate": "2026-12-01"
+     }
+    },
+    {
+     "id": "594144",
+     "longComment": "",
+     "shortComment": "Lund (upper body) was placed on non-roster injured reserve by the Sharks on Monday, Curtis Pashelka of The San Jose Mercury News reports.",
+     "status": "Injured Reserve",
+     "date": "2026-09-28T22:15Z",
+     "athlete": {
+      "firstName": "Cam",
+      "lastName": "Lund",
+      "displayName": "Cam Lund",
+      "shortName": "C. Lund",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/5080203",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "1",
+       "name": "Center",
+       "displayName": "Center",
+       "abbreviation": "C",
+       "leaf": true
+      },
+      "team": {
+       "id": "18",
+       "uid": "s:70~l:90~t:18",
+       "slug": "san-jose-sharks",
+       "name": "Sharks",
+       "abbreviation": "SJ",
+       "displayName": "San Jose Sharks"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Upper Body",
+      "returnDate": "2026-10-19"
+     }
+    },
+    {
+     "id": "594142",
+     "longComment": "",
+     "shortComment": "Keyser (upper body) was placed on non-roster injured reserve by the Sharks on Monday, Curtis Pashelka of The San Jose Mercury News reports.",
+     "status": "Injured Reserve",
+     "date": "2026-09-28T22:10Z",
+     "athlete": {
+      "firstName": "Kyle",
+      "lastName": "Keyser",
+      "displayName": "Kyle Keyser",
+      "shortName": "K. Keyser",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/4329962",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "5",
+       "name": "Goaltender",
+       "displayName": "Goaltender",
+       "abbreviation": "G",
+       "leaf": false
+      },
+      "team": {
+       "id": "18",
+       "uid": "s:70~l:90~t:18",
+       "slug": "san-jose-sharks",
+       "name": "Sharks",
+       "abbreviation": "SJ",
+       "displayName": "San Jose Sharks"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Upper Body",
+      "returnDate": "2026-12-01"
+     }
+    }
+   ]
+  },
+  {
+   "id": "28",
+   "displayName": "Winnipeg Jets",
+   "injuries": [
+    {
+     "id": "594470",
+     "longComment": "",
+     "shortComment": "ir-nr",
+     "status": "Injured Reserve",
+     "date": "2026-10-02T20:25Z",
+     "athlete": {
+      "firstName": "Connor",
+      "lastName": "Hellebuyck",
+      "displayName": "Connor Hellebuyck",
+      "shortName": "C. Hellebuyck",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/3020225",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "5",
+       "name": "Goaltender",
+       "displayName": "Goaltender",
+       "abbreviation": "G",
+       "leaf": false
+      },
+      "team": {
+       "id": "28",
+       "uid": "s:70~l:90~t:28",
+       "slug": "winnipeg-jets",
+       "name": "Jets",
+       "abbreviation": "WPG",
+       "displayName": "Winnipeg Jets"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Suspension",
+      "returnDate": "2026-10-17"
+     }
+    },
+    {
+     "id": "594172",
+     "longComment": "",
+     "shortComment": "ir-nr",
+     "status": "Injured Reserve",
+     "date": "2026-09-29T15:55Z",
+     "athlete": {
+      "firstName": "Garrett",
+      "lastName": "Brown",
+      "displayName": "Garrett Brown",
+      "shortName": "G. Brown",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/5104207",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "1",
+       "name": "Center",
+       "displayName": "Center",
+       "abbreviation": "C",
+       "leaf": true
+      },
+      "team": {
+       "id": "28",
+       "uid": "s:70~l:90~t:28",
+       "slug": "winnipeg-jets",
+       "name": "Jets",
+       "abbreviation": "WPG",
+       "displayName": "Winnipeg Jets"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Lower Body",
+      "returnDate": "2026-10-09"
+     }
+    },
+    {
+     "id": "594170",
+     "longComment": "",
+     "shortComment": "ir-nr",
+     "status": "Injured Reserve",
+     "date": "2026-09-29T15:54Z",
+     "athlete": {
+      "firstName": "Walker",
+      "lastName": "Duehr",
+      "displayName": "Walker Duehr",
+      "shortName": "W. Duehr",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/4319940",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "3",
+       "name": "Right Wing",
+       "displayName": "Right Wing",
+       "abbreviation": "RW",
+       "leaf": true
+      },
+      "team": {
+       "id": "28",
+       "uid": "s:70~l:90~t:28",
+       "slug": "winnipeg-jets",
+       "name": "Jets",
+       "abbreviation": "WPG",
+       "displayName": "Winnipeg Jets"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Lower Body",
+      "returnDate": "2026-10-17"
+     }
+    },
+    {
+     "id": "594171",
+     "longComment": "",
+     "shortComment": "ir-nr",
+     "status": "Injured Reserve",
+     "date": "2026-09-29T15:54Z",
+     "athlete": {
+      "firstName": "Elias",
+      "lastName": "Salomonsson",
+      "displayName": "Elias Salomonsson",
+      "shortName": "E. Salomonsson",
+      "links": [
+       {
+        "language": "en-US",
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nhl/player/_/id/5080223",
+        "text": "Player Card",
+        "shortText": "Player Card",
+        "isExternal": false,
+        "isPremium": false
+       }
+      ],
+      "position": {
+       "id": "4",
+       "name": "Defense",
+       "displayName": "Defense",
+       "abbreviation": "D",
+       "leaf": true
+      },
+      "team": {
+       "id": "28",
+       "uid": "s:70~l:90~t:28",
+       "slug": "winnipeg-jets",
+       "name": "Jets",
+       "abbreviation": "WPG",
+       "displayName": "Winnipeg Jets"
+      },
+      "status": {
+       "id": "1",
+       "name": "Active",
+       "type": "active",
+       "abbreviation": "Active"
+      }
+     },
+     "source": {
+      "id": "1",
+      "description": "basic/manual",
+      "state": "basic"
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-NR",
+       "abbreviation": "IR-NR"
+      },
+      "type": "Shoulder",
+      "detail": "Surgery",
+      "side": "Not Specified",
+      "returnDate": "2026-10-15"
+     }
+    }
+   ]
+  }
+ ]
+}

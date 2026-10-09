@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field
+import math
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 
 class SkaterGameLogResponse(BaseModel):
@@ -21,6 +22,17 @@ class SkaterGameLogResponse(BaseModel):
     shot_attempts: int = Field(alias="I_F_shotAttempts")
     on_ice_x_goals_percentage: float = Field(alias="onIce_xGoalsPercentage")
     game_score: float = Field(alias="gameScore")
+    # optional so the per-player career scrape (which doesn't join these) still validates
+    shots_on_goal: int | None = Field(default=None, alias="I_F_shotsOnGoal")
+    pp_toi: float | None = Field(default=None, alias="pp_icetime")  # 5on4 ice time, seconds
+    pp_points: int | None = Field(default=None, alias="pp_I_F_points")  # 5on4 points
+    hits: int | None = Field(default=None, alias="I_F_hits")
+    blocked_shots: int | None = Field(default=None, alias="shotsBlockedByPlayer")  # shots blocked BY the player
+
+    @field_validator("shots_on_goal", "pp_toi", "pp_points", "hits", "blocked_shots", mode="before")
+    @classmethod
+    def _nan_to_none(cls, v):
+        return None if isinstance(v, float) and math.isnan(v) else v
 
     class Config:
         validate_by_name = True

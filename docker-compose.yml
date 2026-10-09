@@ -1,3 +1,20 @@
+# The whole app as one project: Postgres, the dev backend + frontend (live-reloaded from this checkout), and the
+# frozen forward-test container. All three app services use the one database in .env (DATABASE_URL).
+#
+#   docker compose up -d --build        # start / update everything; rebuilds the dev images only
+#   docker compose down                 # stop everything (the database files and model bundles are kept)
+#   docker compose logs -f forward      # follow one service
+#
+# Only the forward container runs the scheduler (fetching, the prediction log, scoring, weekly training); the dev
+# backend has SCHEDULER_ENABLED=0 so the two never fetch, score or log twice into the same database.
+#
+# The forward test stays frozen: its service has no build section, so `up --build` and code edits never touch it.
+# Rebuilding it is a deliberate two-step (commit first: GIT_COMMIT is how a logged model_version is traced to code):
+#   docker build --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) -t nhl-fwd-backend ./backend
+#   docker compose up -d forward
+# Its model bundles live in the fwd_models volume, so a code rebuild keeps the fitted models (and model_version).
+name: nhl
+
 services:
   db:
     image: postgres:15
@@ -17,11 +34,14 @@ services:
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
 
+  # dev: this checkout's code, live-reloaded (http://localhost:8002)
   backend:
     build: ./backend
     container_name: fastapi_backend
     restart: always
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app"
+    # watch only the source packages: uvicorn's StatReload (watchfiles isn't installed, so --reload-exclude does
+    # nothing) otherwise walks every file under /app each second, including a local backend/.venv (~10K files)
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app --reload-dir /app/predictions --reload-dir /app/external"
     volumes:
       - ./backend:/app
     ports:
@@ -31,9 +51,13 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: ${DATABASE_URL}
-      ODDS_API_KEY: ${ODDS_API_KEY}
+      PROPLINE_API_KEY: ${PROPLINE_API_KEY}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
+      # set DEV_SCHEDULER_ENABLED=1 in .env to run the jobs here instead of in the forward container (never both)
+      SCHEDULER_ENABLED: ${DEV_SCHEDULER_ENABLED:-0}
+      TRAIN_SCHEDULE: ${DEV_TRAIN_SCHEDULE:-off}
 
+  # dev site (http://localhost:5174)
   frontend:
     build: ./vite-frontend
     container_name: react_frontend
@@ -48,3 +72,31 @@ services:
       VITE_API_URL: http://localhost:8002
     depends_on:
       - backend
+
+  # the forward test: the frozen image built above, logging predictions (http://localhost:8004)
+  forward:
+    image: nhl-fwd-backend
+    pull_policy: never
+    container_name: fwd_fastapi_backend
+    restart: always
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - fwd_models:/app/predictions/models
+    ports:
+      - "8004:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      PROPLINE_API_KEY: ${PROPLINE_API_KEY}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      SCHEDULER_ENABLED: "1"
+      TRAIN_SCHEDULE: weekly
+      TRAIN_WEEKDAY: "0"
+
+volumes:
+  # the forward test's fitted (and weekly retrained) models; the volume predates this file, hence the name
+  fwd_models:
+    external: true
+    name: nhl-fwd_fwd_models

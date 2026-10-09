@@ -1,0 +1,158 @@
+{
+ "id": 2026020053,
+ "season": 20262027,
+ "gameType": 2,
+ "gameDate": "2026-10-07",
+ "startTimeUTC": "2026-10-07T23:30:00Z",
+ "gameState": "FUT",
+ "awayTeam": {
+  "id": 5,
+  "commonName": {
+   "default": "Penguins"
+  },
+  "abbrev": "PIT",
+  "placeName": {
+   "default": "Pittsburgh"
+  },
+  "placeNameWithPreposition": {
+   "default": "Pittsburgh",
+   "fr": "de Pittsburgh"
+  },
+  "logo": "https://assets.nhle.com/logos/nhl/svg/PIT_light.svg",
+  "darkLogo": "https://assets.nhle.com/logos/nhl/svg/PIT_dark.svg",
+  "record": "2-1-0"
+ },
+ "homeTeam": {
+  "id": 15,
+  "commonName": {
+   "default": "Capitals"
+  },
+  "abbrev": "WSH",
+  "placeName": {
+   "default": "Washington"
+  },
+  "placeNameWithPreposition": {
+   "default": "Washington",
+   "fr": "de Washington"
+  },
+  "logo": "https://assets.nhle.com/logos/nhl/svg/WSH_secondary_light.svg",
+  "darkLogo": "https://assets.nhle.com/logos/nhl/svg/WSH_secondary_dark.svg",
+  "record": "1-1-0"
+ },
+ "matchup": {
+  "goalieComparison": {
+   "contextLabel": "regular_season",
+   "contextSeason": 20262027,
+   "homeTeam": {
+    "teamTotals": {
+     "record": "1-1-0",
+     "gaa": 2.5,
+     "savePctg": 0.920635,
+     "shutouts": 0,
+     "gamesPlayed": 2
+    },
+    "leaders": [
+     {
+      "playerId": 8479292,
+      "name": {
+       "default": "C. Lindgren"
+      },
+      "firstName": {
+       "default": "Charlie"
+      },
+      "lastName": {
+       "default": "Lindgren"
+      },
+      "sweaterNumber": 79,
+      "headshot": "https://assets.nhle.com/mugs/nhl/20262027/WSH/8479292.png",
+      "positionCode": "G",
+      "gamesPlayed": 1,
+      "seasonPoints": 0,
+      "record": "0-1-0",
+      "gaa": 2.08,
+      "savePctg": 0.931,
+      "shutouts": 0
+     },
+     {
+      "playerId": 8480313,
+      "name": {
+       "default": "L. Thompson"
+      },
+      "firstName": {
+       "default": "Logan"
+      },
+      "lastName": {
+       "default": "Thompson"
+      },
+      "sweaterNumber": 48,
+      "headshot": "https://assets.nhle.com/mugs/nhl/20262027/WSH/8480313.png",
+      "positionCode": "G",
+      "gamesPlayed": 1,
+      "seasonPoints": 2,
+      "record": "1-0-0",
+      "gaa": 2.0,
+      "savePctg": 0.939,
+      "shutouts": 0
+     }
+    ]
+   },
+   "awayTeam": {
+    "teamTotals": {
+     "record": "2-1-0",
+     "gaa": 2.666667,
+     "savePctg": 0.898734,
+     "shutouts": 1,
+     "gamesPlayed": 3
+    },
+    "leaders": [
+     {
+      "playerId": 8483703,
+      "name": {
+       "default": "S. Murashov"
+      },
+      "firstName": {
+       "default": "Sergei"
+      },
+      "lastName": {
+       "default": "Murashov"
+      },
+      "sweaterNumber": 1,
+      "headshot": "https://assets.nhle.com/mugs/nhl/20262027/PIT/8483703.png",
+      "positionCode": "G",
+      "gamesPlayed": 1,
+      "seasonPoints": 0,
+      "record": "0-1-0",
+      "gaa": 3.14,
+      "savePctg": 0.914,
+      "shutouts": 0
+     },
+     {
+      "playerId": 8481668,
+      "name": {
+       "default": "A. Silovs",
+       "cs": "A. \u0160ilovs",
+       "sk": "A. \u0160ilovs"
+      },
+      "firstName": {
+       "default": "Arturs"
+      },
+      "lastName": {
+       "default": "Silovs",
+       "cs": "\u0160ilovs",
+       "sk": "\u0160ilovs"
+      },
+      "sweaterNumber": 37,
+      "headshot": "https://assets.nhle.com/mugs/nhl/20262027/PIT/8481668.png",
+      "positionCode": "G",
+      "gamesPlayed": 2,
+      "seasonPoints": 4,
+      "record": "2-0-0",
+      "gaa": 2.47,
+      "savePctg": 0.886,
+      "shutouts": 1
+     }
+    ]
+   }
+  }
+ }
+}

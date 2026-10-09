@@ -7,7 +7,7 @@ import { useParams } from "react-router-dom";
 
 export const TopPlayersPage: FC = () => {
   const { season, n, player_type } = useParams<{ season: string; n: string; player_type: "skaters" | "goalies" }>();
-  const { data: players, loading, error } = useTopPlayers(Number(season), Number(n), player_type!);
+  const { data: players, loading, error } = useTopPlayers(season!, Number(n), player_type!);
 
   if (error) return <ErrorPage message="Error loading top players." />;
   if (loading) return <LoadingPage />;

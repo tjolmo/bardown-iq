@@ -1,6 +1,8 @@
 import os
 import secrets
-from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi import APIRouter, Depends, HTTPException, Query, Security
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.dependencies import get_db
 from fastapi.security import APIKeyHeader
 from app import refresh
 from app.schedules import full_refresh
@@ -9,7 +11,7 @@ from app.schedules import full_refresh
 admin_token_header = APIKeyHeader(name="X-Admin-Token", auto_error=False, description="Value of the ADMIN_TOKEN env var")
 
 def require_admin_token(token: str | None = Security(admin_token_header)):
-    """The refresh hits external APIs (including the metered Odds API) and retrains models,
+    """The refresh hits external APIs (including the metered PropLine API) and retrains models,
     so it is only available when ADMIN_TOKEN is set, and only to callers presenting it."""
     expected = os.getenv("ADMIN_TOKEN")
     if not expected:
@@ -28,3 +30,11 @@ async def trigger_full_refresh():
 @router.get("/refresh", status_code=200)
 async def get_refresh_status():
     return refresh.get_status()
+
+@router.get("/model-report", status_code=200)
+async def get_model_report(model_version: str | None = None, start: int | None = Query(None, description="YYYYMMDD"),
+                           end: int | None = Query(None, description="YYYYMMDD"), db: AsyncSession = Depends(get_db)):
+    """Forward test of the frozen models (read-only): realized log loss / Poisson deviance vs the market at log
+    time and at the close, calibration buckets and closing-line value, from prediction_scores."""
+    from predictions.prediction_log import model_report
+    return await model_report(db, model_version, start, end)

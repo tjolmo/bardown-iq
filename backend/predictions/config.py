@@ -1,137 +1,55 @@
 from pathlib import Path
 
-SKATER_FEATURE_COLUMNS = [
-    "rolling_x_goals",
-    "rolling_toi",
-    "rolling_game_score",
-    "rolling_shot_attempts",
-    "rolling_high_danger_shots",
-    "rolling_on_ice_x_goals_percentage",
-    "rolling_primary_assists",
-    "rolling_goals",
-    "rolling_points",
-    "is_home",
-]
-SKATER_TARGET_COLUMNS = ["points", "goals", "primary_assists", "secondary_assists"]
-SKATER_CLF_TARGET_COLUMNS = ["goals", "assists", "points"]
-SKATER_MODEL_DIR = Path(__file__).parent / "models/skater"
-SKATER_MODEL_DIR.mkdir(exist_ok=True, parents=True)
+MODEL_DIR = Path(__file__).parent / "models"
+MODEL_DIR.mkdir(exist_ok=True, parents=True)
 
-def skater_model_path(target: str) -> Path:
-    return SKATER_MODEL_DIR / f"{target}.joblib"
-def skater_clf_model_path(target: str) -> Path:
-    return SKATER_MODEL_DIR / f"{target}_clf.joblib"
+# each bundle holds the fitted models plus everything live prediction needs to rebuild the same features
+SKATER_BUNDLE = MODEL_DIR / "skater.joblib"
+GOALIE_BUNDLE = MODEL_DIR / "goalie.joblib"
+TEAM_BUNDLE = MODEL_DIR / "team.joblib"
+METRICS_PATH = MODEL_DIR / "metrics.json"
 
-SKATER_XGB_PARAMS = {
-    "objective": "reg:tweedie",
-    "tweedie_variance_power": 1.4,
+# one Poisson model per stat; P(at least one) = 1 - exp(-expected), so counts and probabilities always agree
+SKATER_TARGETS = ["goals", "assists", "points", "shots_on_goal", "hits", "blocked_shots", "pp_points"]
+# skater stats beyond the core box score (stored since the shots/power-play backfill), used as extra inputs
+SKATER_EXTRA_STATS = ("shots_on_goal", "pp_toi", "pp_points", "hits", "blocked_shots")
+# shots per skater fell ~10% from 2023 to 2025; the league trend keeps shots-on-goal predictions unbiased
+SKATER_TREND_TARGETS = ["shots_on_goal"]
+GOALIE_TARGETS = ["goals_against", "sog", "saves"]
+# targets whose league level drifts over time get the league trend as their Poisson base margin
+# (shots per game fell ~10% from 2021 to 2025; goals against didn't drift, and the trend made it slightly worse)
+GOALIE_TREND_TARGETS = ["sog", "saves"]
+
+# the most recent fraction of game dates is held out to pick the number of trees and report out-of-time metrics;
+# the saved model is then refit on all games with that many trees
+VALIDATION_FRACTION = 0.2
+
+POISSON_PARAMS = {
+    "objective": "count:poisson",
     "tree_method": "hist",
-    "eval_metric": "tweedie-nloglik@1.4",
-    "n_estimators": 3000,
-    "learning_rate": 0.015,
-    "max_depth": 4,
-    "subsample": 0.7,
-    "colsample_bytree": 0.7,
-    "colsample_bylevel": 0.7,
-    "min_child_weight": 15,
-    "reg_alpha": 0.5,
-    "reg_lambda": 2.0,
-    "random_state": 42,
-    "verbosity": 0,
-    "early_stopping_rounds": 75,
-}
-
-SKATER_XGB_CLF_PARAMS = {
-    "objective": "binary:logistic",
-    "tree_method": "hist",
-    "eval_metric": "logloss",
-    "n_estimators": 2000,
+    "eval_metric": "poisson-nloglik",
+    "n_estimators": 4000,
     "learning_rate": 0.02,
     "max_depth": 4,
-    "subsample": 0.7,
-    "colsample_bytree": 0.7,
-    "colsample_bylevel": 0.7,
-    "min_child_weight": 10,
-    "reg_alpha": 0.3,
-    "reg_lambda": 1.5,
+    "subsample": 0.8,
+    "colsample_bytree": 0.6,
+    "min_child_weight": 50,
+    "reg_lambda": 5.0,
+    "max_delta_step": 0.7,
     "random_state": 42,
-    "verbosity": 0,
-    "early_stopping_rounds": 75,
+    "early_stopping_rounds": 150,
 }
+GOALIE_POISSON_PARAMS = POISSON_PARAMS | {"min_child_weight": 20}
 
-GOALIE_FEATURE_COLUMNS = [
-    "rolling_x_goals_against",
-    "rolling_goals_against",
-    "rolling_sog",
-    "rolling_flurry_adjusted_x_goals",
-    "rolling_high_danger_x_goals",
-    "rolling_x_sog",
-    "rolling_high_danger_shots",
-    "rolling_rebounds",
-    "rolling_x_rebounds",
-    "rolling_freeze",
-    "rolling_x_freeze",
-    "is_home",
-]
-GOALIE_TARGET_COLUMNS = ["goals_against", "sog"]
-GOALIE_MODEL_DIR = Path(__file__).parent / "models/goalie"
-GOALIE_MODEL_DIR.mkdir(exist_ok=True, parents=True)
+# negative-binomial dispersion (variance = mu(1 + alpha mu)) when pricing props. Training fits alpha per target on the
+# validation split and saves it in the bundle (predictions/dispersion.py); these hand-set values (measured on the
+# props-v2 test seasons) are only the fallback for bundles trained before that
+PROP_DISPERSION = {"hits": 0.12, "blocked_shots": 0.08}
+# fitted alphas are clamped to [0, DISPERSION_MAX_ALPHA]; the NB replaces the Poisson only where it raises the mean
+# validation log likelihood per row by at least DISPERSION_MIN_GAIN nats
+DISPERSION_MAX_ALPHA = 1.0
+DISPERSION_MIN_GAIN = 0.0005
 
-def goalie_model_path(target: str) -> Path:
-    return GOALIE_MODEL_DIR / f"goalie_{target}.joblib"
-
-GOALIE_XGB_PARAMS = {
-    "objective": "reg:tweedie",
-    "tweedie_variance_power": 1.4,
-    "tree_method": "hist",
-    "eval_metric": "tweedie-nloglik@1.4",
-    "n_estimators": 3000,
-    "learning_rate": 0.02,
-    "max_depth": 4,
-    "subsample": 0.7,
-    "colsample_bytree": 0.7,
-    "colsample_bylevel": 0.7,
-    "min_child_weight": 10,
-    "reg_alpha": 0.3,
-    "reg_lambda": 2.0,
-    "random_state": 42,
-    "verbosity": 0,
-    "early_stopping_rounds": 100,
-}
-
-TEAM_BASE_STATS = [
-    "goals", "x_goals", "shot_attempts", "high_danger_shots",
-    "points", "primary_assists", "avg_on_ice_x_goals_percentage",
-    "avg_game_score", "goals_against", "x_goals_against",
-    "sog_against", "high_danger_shots_against",
-    "high_danger_x_goals_against", "flurry_adjusted_x_goals_against",
-]
-TEAM_WINDOW = 5
-TEAM_FEATURE_COLUMNS_SINGLE = [f"rolling_{s}_5g" for s in TEAM_BASE_STATS]
-TEAM_OPP_FEATURE_COLUMNS = [f"opp_{c}" for c in TEAM_FEATURE_COLUMNS_SINGLE]
-TEAM_FEATURE_COLUMNS = TEAM_FEATURE_COLUMNS_SINGLE + ["is_home"] + TEAM_OPP_FEATURE_COLUMNS
-TEAM_CLF_TARGET_COLUMNS = ["win"]
-
-TEAM_MODEL_DIR = Path(__file__).parent / "models/team"
-TEAM_MODEL_DIR.mkdir(exist_ok=True, parents=True)
-
-def team_clf_model_path(target: str) -> Path:
-    return TEAM_MODEL_DIR / f"team_{target}_clf.joblib"
-
-TEAM_XGB_CLF_PARAMS = {
-    "objective": "binary:logistic",
-    "tree_method": "hist",
-    "eval_metric": "logloss",
-    "n_estimators": 2000,
-    "learning_rate": 0.04,
-    "max_depth": 4,
-    "subsample": 0.7,
-    "colsample_bytree": 0.7,
-    "colsample_bylevel": 0.7,
-    "min_child_weight": 10,
-    "reg_alpha": 0.3,
-    "reg_lambda": 1.5,
-    "random_state": 42,
-    "verbosity": 0,
-    "early_stopping_rounds": 75,
-}
+# training uses the actual starter (game_starters, NHL boxscore) for the starter features of played games instead of
+# the schedule projection; see RESULTS_v5 section 1
+TRAIN_ON_ACTUAL_STARTERS = True
