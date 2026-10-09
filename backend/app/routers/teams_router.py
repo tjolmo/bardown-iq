@@ -2,6 +2,7 @@ from external.nhl.games import get_odds_for_current_games
 from app.crud.game_line_quotes import get_moneylines
 from predictions.predict import get_upcoming_game_prediction
 from app.crud.teams import search_teams_by_name
+from app.schedules import current_game_day
 from fastapi import Query
 from app.schemas.teams import TeamSearchResultOut
 import datetime
@@ -91,10 +92,8 @@ async def get_team_next_5_games(tri_code: str, offset: int, db = Depends(get_db)
 
 @router.get("/games/{date}", status_code=200, response_model=list[TeamScheduledGameInfoOut])
 async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
-    #get today's date as int
-    today_int_date = datetime.date.today()
-    # to int YYYYMMDD
-    today_int_date = int(today_int_date.strftime("%Y%m%d")) 
+    # the NHL game day, not the container's UTC date: at midnight UTC (5pm PT) tonight's games are still "today"
+    today_int_date = int(current_game_day().strftime("%Y%m%d"))
 
     if date == "today":
         int_date = today_int_date
