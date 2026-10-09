@@ -112,3 +112,58 @@ def test_edge_is_the_model_minus_the_no_vig_price():
 def test_no_edge_without_a_prediction_or_a_line():
     assert game_edge("VGK", "EDM", None, None, TeamMoneylineOut(home=-120, away=100)) is None
     assert game_edge("VGK", "EDM", 0.45, 0.55, None) is None
+
+
+def test_started_games_show_the_espn_close_not_a_later_propline_quote(monkeypatch):
+    from app.routers import teams_router
+    now = datetime.datetime.now(datetime.timezone.utc)
+    final = SimpleNamespace(id=1, game_state="OFF", start_time=now - datetime.timedelta(hours=4))
+    no_espn = SimpleNamespace(id=2, game_state="LIVE", start_time=now - datetime.timedelta(hours=1))
+    upcoming = SimpleNamespace(id=3, game_state="FUT", start_time=now + datetime.timedelta(hours=1))
+    asked = {}
+
+    async def fake_closing(db, game_ids):
+        asked["espn"] = sorted(game_ids)
+        return {1: SimpleNamespace(home_moneyline=-122.0, away_moneyline=102.0)}
+
+    async def fake_propline(db, game_ids):
+        asked["propline"] = sorted(game_ids)
+        # the in-game prices PropLine kept quoting
+        quotes = {1: {"home": 2679, "away": -10000}, 2: {"home": -4005, "away": 1198}}
+        return {gid: quotes[gid] for gid in game_ids if gid in quotes}
+
+    async def fake_nhl():
+        return [SimpleNamespace(game_id=gid, home_moneyline=-150, away_moneyline=130) for gid in (2, 3)]
+
+    monkeypatch.setattr(teams_router, "closing_game_snapshots", fake_closing)
+    monkeypatch.setattr(teams_router, "get_moneylines", fake_propline)
+    monkeypatch.setattr(teams_router, "get_odds_for_current_games", fake_nhl)
+
+    out = asyncio.run(teams_router.moneylines_for(None, [final, no_espn, upcoming], nhl_fallback=True))
+
+    assert asked == {"espn": [1, 2], "propline": [2, 3]}
+    assert (out[1].home, out[1].away, out[1].source, out[1].best_home) == (-122, 102, "espn", None)
+    # no ESPN close: PropLine's last quote, never the NHL feed's live price
+    assert (out[2].home, out[2].source) == (-4005, "propline")
+    assert (out[3].home, out[3].source) == (-150, "nhl")
+    # the edge on the final game is the pregame model against that close
+    edge = game_edge("BUF", "DAL", 0.55, 0.45, out[1])
+    assert (edge.tri_code, edge.side) == ("BUF", "home") and edge.points < 5
+
+
+def test_live_status_marks_a_game_started_before_its_stored_state_does(monkeypatch):
+    from app.routers import teams_router
+    game = SimpleNamespace(id=1, game_state="FUT", start_time=datetime.datetime.now(datetime.timezone.utc))
+
+    async def fake_closing(db, game_ids):
+        return {gid: SimpleNamespace(home_moneyline=-110.0, away_moneyline=-110.0) for gid in game_ids}
+
+    async def fake_propline(db, game_ids):
+        return {}
+
+    monkeypatch.setattr(teams_router, "closing_game_snapshots", fake_closing)
+    monkeypatch.setattr(teams_router, "get_moneylines", fake_propline)
+
+    out = asyncio.run(teams_router.moneylines_for(None, [game], nhl_fallback=False,
+                                                  live_statuses={1: SimpleNamespace(game_state="LIVE")}))
+    assert out[1].source == "espn"

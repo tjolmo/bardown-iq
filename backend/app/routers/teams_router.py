@@ -2,6 +2,7 @@ from external.nhl.games import get_odds_for_current_games, get_live_statuses
 from app.game_board import needs_live_status, live_out, game_edge, has_started
 from app.crud.prediction_log import get_pregame_home_win_probs
 from app.crud.game_line_quotes import get_moneylines
+from app.crud.odds_snapshots import closing_game_snapshots
 from predictions.predict import get_upcoming_game_prediction
 from app.crud.teams import search_teams_by_name
 from app.schedules import current_game_day
@@ -17,12 +18,23 @@ from app.schemas.teams import TeamBasicInfoOut, Last5GameInfoOut, TeamScheduledG
 router = APIRouter(prefix="/teams", tags=["teams"])
 
 
-async def moneylines_for(db, game_ids: list[int], nhl_fallback: bool) -> dict[int, TeamMoneylineOut]:
-    """game_id -> moneyline: PropLine's books (game_line_quotes), else NHL's partner feed for today's games."""
-    out = {gid: TeamMoneylineOut(**m) for gid, m in (await get_moneylines(db, game_ids)).items()}
-    if nhl_fallback and len(out) < len(game_ids):
+async def moneylines_for(db, games, nhl_fallback: bool, live_statuses: dict | None = None) -> dict[int, TeamMoneylineOut]:
+    """game_id -> moneyline. Started and finished games: ESPN's close (closing_game_snapshots, never an in-game
+    price), else PropLine's last quote. Upcoming games: PropLine's books (game_line_quotes), else NHL's partner feed
+    for today's games."""
+    live_statuses = live_statuses or {}
+    game_ids = [g.id for g in games]
+    started = {g.id for g in games if has_started(g, live_statuses.get(g.id))}
+    out = {}
+    for gid, snap in (await closing_game_snapshots(db, [gid for gid in game_ids if gid in started])).items():
+        if snap.home_moneyline is not None and snap.away_moneyline is not None:
+            out[gid] = TeamMoneylineOut(home=round(snap.home_moneyline), away=round(snap.away_moneyline), source="espn")
+    for gid, m in (await get_moneylines(db, [gid for gid in game_ids if gid not in out])).items():
+        out[gid] = TeamMoneylineOut(**m)
+    upcoming = {gid for gid in game_ids if gid not in started}
+    if nhl_fallback and upcoming - out.keys():
         for odd in await get_odds_for_current_games() or []:
-            if odd.game_id in game_ids and odd.game_id not in out:
+            if odd.game_id in upcoming and odd.game_id not in out:
                 out[odd.game_id] = TeamMoneylineOut(home=odd.home_moneyline, away=odd.away_moneyline, source="nhl")
     return out
 
@@ -52,7 +64,7 @@ async def get_team_next_5_games(tri_code: str, offset: int, db = Depends(get_db)
     next_5_games = await get_next_n_games_info_by_tri_code(db, tri_code, 5, offset)
     next_5_cleaned = []
     if next_5_games is not None:
-        moneyline_odds = await moneylines_for(db, [g.id for g in next_5_games], nhl_fallback=True)
+        moneyline_odds = await moneylines_for(db, next_5_games, nhl_fallback=True)
         for i, game in enumerate(next_5_games):
             try: 
                 home_team = await get_team_by_tri_code(db, game.home_team_tri_code)
@@ -110,10 +122,10 @@ async def get_all_games_from_date(db = Depends(get_db), date: str="today"):
 
     if games is None or len(games) == 0:
         return []
-    # PropLine's lines for any date it priced; NHL's partner feed (today only) fills the gaps
-    moneyline_odds = await moneylines_for(db, [g.id for g in games], nhl_fallback=int_date == today_int_date)
     # period, clock and intermission of today's games under way, and their score fresher than the stored one
     live_statuses = await get_live_statuses() if int_date == today_int_date and needs_live_status(games) else {}
+    # ESPN's close for games under way or over; PropLine's lines for any date it priced; NHL's partner feed (today only)
+    moneyline_odds = await moneylines_for(db, games, nhl_fallback=int_date == today_int_date, live_statuses=live_statuses)
     # the model's frozen pre-game call for games under way or over (the live prediction covers unstarted games only)
     logged_home_probs = await get_pregame_home_win_probs(db, [g.id for g in games])
     for i, game in enumerate(games):

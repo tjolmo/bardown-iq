@@ -120,7 +120,9 @@ def test_fetch_current_player_props_stores_every_quote_and_best_props(monkeypatc
         return events
 
     async def fake_games(db, date):
-        return [NS(id=2026020001, home_team_tri_code="TOR", away_team_tri_code="MTL", start_time=events[0].commence_time)]
+        # not started yet, so its game lines are stored
+        return [NS(id=2026020001, home_team_tri_code="TOR", away_team_tri_code="MTL", game_state="FUT",
+                   start_time=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=2))]
 
     async def fake_teams(db):
         return [NS(current_name="Toronto Maple Leafs", tri_code="TOR"), NS(current_name="Montreal Canadiens", tri_code="MTL")]
@@ -166,3 +168,42 @@ def test_fetch_current_player_props_stores_every_quote_and_best_props(monkeypatc
     assert best[("player_goals", "Over")] == (0.5, 110, "draftkings")
     # the same request's game lines are stored for the game
     assert len(captured["lines"]) == 10 and {r["game_id"] for r in captured["lines"]} == {2026020001}
+
+
+def test_game_lines_are_not_stored_once_the_game_has_started(monkeypatch):
+    payload = load()
+    lines = parse_game_lines(payload)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    hour = datetime.timedelta(hours=1)
+    # live, final, scheduled but past its start time (stale state), and upcoming
+    games = [NS(id=1, home_team_tri_code="TOR", away_team_tri_code="MTL", game_state="LIVE", start_time=now - hour),
+             NS(id=2, home_team_tri_code="BOS", away_team_tri_code="BUF", game_state="OFF", start_time=now - 4 * hour),
+             NS(id=3, home_team_tri_code="DAL", away_team_tri_code="CHI", game_state="FUT", start_time=now - hour),
+             NS(id=4, home_team_tri_code="MIN", away_team_tri_code="TBL", game_state="FUT", start_time=now + hour)]
+    names = {"TOR": "Toronto Maple Leafs", "MTL": "Montreal Canadiens", "BOS": "Boston Bruins", "BUF": "Buffalo Sabres",
+             "DAL": "Dallas Stars", "CHI": "Chicago Blackhawks", "MIN": "Minnesota Wild", "TBL": "Tampa Bay Lightning"}
+    events = [(NS(home_team=names[g.home_team_tri_code], away_team=names[g.away_team_tri_code], commence_time=g.start_time),
+               lines) for g in games]
+    stored = []
+
+    async def fake_game_lines():
+        return events
+
+    async def fake_games(db, date):
+        return games
+
+    async def fake_teams(db):
+        return [NS(current_name=name, tri_code=code) for code, name in names.items()]
+
+    async def fake_upsert_lines(db, rows):
+        stored.extend(rows)
+
+    monkeypatch.setattr(schedules, "AsyncSessionLocal", FakeSession)
+    monkeypatch.setattr(schedules, "get_game_lines", fake_game_lines)
+    monkeypatch.setattr(schedules, "get_all_games_for_date", fake_games)
+    monkeypatch.setattr(schedules, "get_all_teams", fake_teams)
+    monkeypatch.setattr(schedules, "upsert_game_line_quotes", fake_upsert_lines)
+
+    asyncio.run(schedules.fetch_current_game_lines())
+
+    assert stored and {r["game_id"] for r in stored} == {4}

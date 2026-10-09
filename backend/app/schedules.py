@@ -225,8 +225,23 @@ def match_prop_player(players_by_id, players_by_name, prop):
     return match_player(players_by_name, prop.first_name, prop.last_name, prop.prop_type)
 
 
-async def store_game_lines(db, game_id: int, lines) -> None:
-    """Every book's game lines for one game; a failure only loses this fetch's lines."""
+# NHL game states before puck drop (as in app.game_board)
+PREGAME_STATES = (None, "FUT", "PRE")
+
+
+def game_has_started(game, now: datetime.datetime) -> bool:
+    """True once the game is live or over, by its stored state or its start time."""
+    if getattr(game, "game_state", None) not in PREGAME_STATES:
+        return True
+    return game.start_time is not None and as_utc_time(game.start_time) <= now
+
+
+async def store_game_lines(db, game, lines, now: datetime.datetime) -> None:
+    """Every book's game lines for one game that has not started; a failure only loses this fetch's lines. PropLine
+    keeps quoting during the game, and an in-game price must not overwrite the pregame close."""
+    if game_has_started(game, now):
+        return
+    game_id = game.id
     rows = [{"game_id": game_id, "market": l.market, "side": l.side, "line": l.line, "odds": l.odds,
              "bookmaker": l.bookmaker, "book_last_update": l.book_last_update, "event_id": l.event_id} for l in lines]
     if not rows:
@@ -246,6 +261,7 @@ async def fetch_current_player_props():
     async with AsyncSessionLocal() as db:
         events = await get_upcoming_games(start_time, end_time)
         all_games = await games_around(db, start_time, range(-1, 2))
+        games_by_id = {g.id: g for g in all_games}
         tri_codes_by_name = {normalize_name(team.current_name): team.tri_code for team in await get_all_teams(db)}
         for event in events:
             game_id, potential_tri_codes = match_event_to_game(event, all_games, tri_codes_by_name)
@@ -260,9 +276,9 @@ async def fetch_current_player_props():
                 results = await get_event_odds(event.event_id)
                 if not results:
                     continue
-                await store_game_lines(db, game_id, parse_game_lines({**results, "id": event.event_id,
+                await store_game_lines(db, games_by_id[game_id], parse_game_lines({**results, "id": event.event_id,
                                                                       "home_team": event.home_team,
-                                                                      "away_team": event.away_team}))
+                                                                      "away_team": event.away_team}), start_time)
                 player_props = parse_player_props(results)
                 team_players = await get_players_on_teams(db, potential_tri_codes)
                 players_by_id = {p.id: p for p in team_players}
@@ -317,11 +333,12 @@ async def fetch_current_game_lines():
     start_time = datetime.datetime.now(datetime.timezone.utc)
     async with AsyncSessionLocal() as db:
         all_games = await games_around(db, start_time, range(-1, 3))
+        games_by_id = {g.id: g for g in all_games}
         tri_codes_by_name = {normalize_name(team.current_name): team.tri_code for team in await get_all_teams(db)}
         for event, lines in events:
             game_id, _ = match_event_to_game(event, all_games, tri_codes_by_name)
             if game_id is not None:
-                await store_game_lines(db, game_id, lines)
+                await store_game_lines(db, games_by_id[game_id], lines, start_time)
 
 
 # How often the nightly run retrains (env TRAIN_SCHEDULE): "weekly" (default) refits once a week on TRAIN_WEEKDAY

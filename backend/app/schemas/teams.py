@@ -82,7 +82,8 @@ class TeamGamePredictionOut(BaseModel):
 
 class TeamMoneylineOut(BaseModel):
     """Output model for a game's moneyline (both teams): the median price of PropLine's consensus books, with the
-    best price per side among those books. NHL's partner feed (one book, no best price) is the fallback."""
+    best price per side among those books. NHL's partner feed (one book, no best price) is the fallback. A game that
+    has started shows ESPN's pregame close instead (source "espn", no best price)."""
     home: int
     away: int
     best_home: int | None = None
