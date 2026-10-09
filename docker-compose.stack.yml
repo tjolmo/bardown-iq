@@ -1,0 +1,105 @@
+# Everything the model rework needs, as one project: Postgres, the dev stack (experiments backend + frontend) and the
+# frozen forward-test container. Replaces running the main stack's db plus docker-compose.experiments.yml (-p
+# nhl-model-experiments) and docker-compose.forward.yml (-p nhl-fwd) separately. The main app's backend/frontend
+# (docker-compose.yml in ../nhl-prediction-capstone) aren't part of it.
+#
+# usage (from this folder):
+#   docker compose -f docker-compose.stack.yml up -d --build     # start / update everything; rebuilds dev images only
+#   docker compose -f docker-compose.stack.yml down              # stop everything (data and models are kept)
+#   docker compose -f docker-compose.stack.yml logs -f forward   # follow one service
+#
+# The forward test stays frozen: its service has no build section, so `up --build` and code edits never touch it.
+# Rebuilding it is a deliberate two-step (commit first: GIT_COMMIT is how a logged model_version is traced to code):
+#   docker build --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) -t nhl-fwd-backend ./backend
+#   docker compose -f docker-compose.stack.yml up -d forward
+#
+# Only the forward container runs the scheduler against nhl_experiments (fetching, the prediction log, scoring,
+# weekly training); the dev backend has SCHEDULER_ENABLED=0 so the two don't fetch, score and log twice.
+# The database files are the main checkout's postgres_data, so the main app's db and this one are the same data;
+# don't start the main stack's db service while this one runs (both are named postgres_db).
+name: nhl
+
+services:
+  db:
+    image: postgres:15
+    container_name: postgres_db
+    restart: always
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5433:5432"
+    volumes:
+      - ../nhl-prediction-capstone/postgres_data:/var/lib/postgresql/data
+
+  # dev: this worktree's code, live-reloaded, against the scratch database (http://localhost:8003)
+  backend:
+    build: ./backend
+    image: nhl-exp-backend
+    container_name: exp_fastapi_backend
+    # watch only the source packages: uvicorn's StatReload (watchfiles isn't installed, so --reload-exclude does
+    # nothing) otherwise walks every file under /app each second
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app --reload-dir /app/predictions --reload-dir /app/external"
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8003:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/nhl_experiments
+      PROPLINE_API_KEY: ${PROPLINE_API_KEY}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      SCHEDULER_ENABLED: ${EXP_SCHEDULER_ENABLED:-0}
+      TRAIN_SCHEDULE: ${EXP_TRAIN_SCHEDULE:-off}
+
+  # dev site (http://localhost:5175)
+  frontend:
+    build: ./vite-frontend
+    image: nhl-exp-frontend
+    container_name: exp_react_frontend
+    command: npm run dev -- --host
+    volumes:
+      - ./vite-frontend:/app
+      - /app/node_modules
+    ports:
+      - "5175:5173"
+    environment:
+      VITE_API_URL: http://localhost:8003
+    depends_on:
+      - backend
+
+  # the forward test: the frozen image built above, logging predictions against nhl_experiments (http://localhost:8004)
+  forward:
+    image: nhl-fwd-backend
+    pull_policy: never
+    container_name: fwd_fastapi_backend
+    restart: always
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - fwd_models:/app/predictions/models
+    ports:
+      - "8004:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/nhl_experiments
+      PROPLINE_API_KEY: ${PROPLINE_API_KEY}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      SCHEDULER_ENABLED: "1"
+      TRAIN_SCHEDULE: weekly
+      TRAIN_WEEKDAY: "0"
+
+volumes:
+  # the forward test's fitted (and weekly retrained) models, created by the old -p nhl-fwd project
+  fwd_models:
+    external: true
+    name: nhl-fwd_fwd_models
