@@ -92,3 +92,20 @@ export const splitTeamName = (name: string): { city: string; nickname: string } 
   const nickname = TWO_WORD_NICKNAMES.find((n) => name.endsWith(` ${n}`)) ?? name.split(" ").slice(-1)[0];
   return { city: name.slice(0, name.length - nickname.length).trim(), nickname };
 };
+
+/** A game's day in the visitor's time zone: "SAT · OCT 10". */
+export const shortDay = (iso: string): string => {
+  const d = new Date(iso);
+  const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+  const monthDay = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return `${weekday} · ${monthDay}`.toUpperCase();
+};
+
+/** Whole calendar days from one game's local date to another's. */
+export const daysBetween = (fromIso: string, toIso: string): number => {
+  const day = (iso: string) => {
+    const d = new Date(iso);
+    return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  };
+  return Math.round((day(toIso) - day(fromIso)) / 86_400_000);
+};
