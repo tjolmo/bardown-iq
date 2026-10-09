@@ -15,11 +15,11 @@ from external.moneypuck.teams import scrape_team_game_stats
 from app.crud.team_game_stats import upsert_team_game_stats
 from external.nhl.players import fetch_and_get_players_info
 from external.nhl.teams import fetch_and_clean_team, fetch_and_clean_team_roster, fetch_and_clean_team_schedule
-from external.nhl.games import fetch_and_get_players_in_a_game, get_current_scores
+from external.nhl.games import get_current_scores
 from external.nhl.response_models import GameResponse
 from .crud.team_history import upsert_team_history, check_team_history_exists_and_updated
 from .crud.teams import get_all_tri_codes_in_db, upsert_team,update_team_roster_last_updated, get_all_tri_codes_update_roster
-from .crud.games import FINISHED_GAME_STATES, has_games_to_poll, check_if_games_in_db, upsert_scraped_games_from_schedule, delete_future_games_not_in
+from .crud.games import FINISHED_GAME_STATES, has_games_to_poll, upsert_scraped_games_from_schedule, delete_future_games_not_in
 from .crud.players import get_players_not_in_db, upsert_scraped_player, set_all_other_players_current_team_tri_code_to_null
 from .crud.skater_game_logs import upsert_scraped_game_logs
 from .crud.goalie_game_logs import upsert_scraped_goalie_game_logs
@@ -100,39 +100,6 @@ async def fetch_current_schedules_for_all_teams():
                 # then drop only future games the NHL no longer lists (cancellations)
                 await delete_future_games_not_in(db, tri_code, [game.id for game in schedule_data])
 
-async def fetch_all_season_schedules_for_all_teams():
-    async with AsyncSessionLocal() as db:
-        tri_codes = await get_all_tri_codes_in_db(db)
-        for season in ["20202021", "20212022", "20222023", "20232024", "20242025", "now"]:
-            all_schedule_data = set()
-            for tri_code in tri_codes:
-                schedule_data = await fetch_and_clean_team_schedule(tri_code, season)
-                if schedule_data:
-                    all_schedule_data.update(schedule_data)
-            # once all schedules fetched, process
-            all_players_in_season = set()
-            # limit to games not in db already
-            games_in_db = await check_if_games_in_db(db, [game.id for game in all_schedule_data])
-            schedule_data_to_add = [game for game in all_schedule_data if game.id not in games_in_db]
-
-            for game in schedule_data_to_add:
-                # fetch players in game, 
-                players_in_game = await fetch_and_get_players_in_a_game(game.id)
-                if players_in_game:
-                    all_players_in_season.update(players_in_game)
-
-            # check which players not in db, fetch info for those players and add to db
-            if all_players_in_season:
-                players_not_in_db = await get_players_not_in_db(db, list(all_players_in_season))
-                for player_id in players_not_in_db:
-                    player_info = await fetch_and_get_players_info(player_id)
-                    if player_info:
-                        await upsert_scraped_player(db, player_info, None)
-        
-            # add every game to db after player scrape to ensure that players added first
-            if schedule_data_to_add:
-                await upsert_scraped_games_from_schedule(db, schedule_data_to_add)
-
 def is_regular_or_playoff_game(game_id: int) -> bool:
     """Game type is digits 5-6 of an NHL game id: 02 regular season, 03 playoffs."""
     return game_id // 10_000 % 100 in (2, 3)
@@ -150,8 +117,7 @@ def merge_season_schedules(schedules: list[list[GameResponse] | None]) -> list[G
     return sorted(games.values(), key=lambda game: game.id)
 
 async def backfill_season_games(season_start_years: list[int]):
-    """Upserts schedules and final scores for past seasons (start years, e.g. 2008 for 2008-09).
-    Unlike fetch_all_season_schedules_for_all_teams it does not fetch the players in each game."""
+    """Upserts schedules and final scores for past seasons (start years, e.g. 2008 for 2008-09)."""
     async with AsyncSessionLocal() as db:
         # teams with no games that season (expansion/relocated) just return an empty schedule
         tri_codes = await get_all_tri_codes_in_db(db)

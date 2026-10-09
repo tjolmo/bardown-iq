@@ -63,6 +63,10 @@ async def get_player_most_recent_game_date_and_last_updated(db: AsyncSession, pl
     game_date_and_last_updated = result.one_or_none()
     return game_date_and_last_updated
 
+async def get_latest_logged_season(db: AsyncSession) -> int | None:
+    """Start year of the latest season with game logs (MoneyPuck's `season`, e.g. 2026 for 2026-27)."""
+    return (await db.execute(select(func.max(SkaterGameLog.season)))).scalar()
+
 async def get_skater_season_basic_stats_from_db(db: AsyncSession, player_id: int, season: int) -> dict | None:
     """Fetches skater season stats from db for a player by player ID and season."""
     result = await db.execute(

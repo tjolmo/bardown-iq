@@ -4,8 +4,8 @@ import SearchBar from "./SearchBar";
 const TABS = [
   { to: "/schedule/today", label: "Today's Games", icon: "📅" },
   { to: "/teams", label: "Teams", icon: "🏒" },
-  { to: "/top-players/skaters/2025/50", label: "Top Skaters", icon: "🏒" },
-  { to: "/top-players/goalies/2025/30", label: "Top Goalies", icon: "🧤" },
+  { to: "/top-players/skaters/current/50", label: "Top Skaters", icon: "🏒" },
+  { to: "/top-players/goalies/current/30", label: "Top Goalies", icon: "🧤" },
   { to: "/edges", label: "Players with Edge", icon: "📈" },
 ];
 

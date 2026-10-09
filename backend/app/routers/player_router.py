@@ -10,13 +10,26 @@ from app.schemas.player import (GoalieLast5BasicStatsGetOut, GoalieSeasonBasicSt
                                 PlayerNextGameGetOut, SkaterLast5BasicStatsGetOut, SkaterSeasonBasicStatsGetOut, PlayerBasicInfoOut, 
                                 PlayerSearchResultOut, PlayerPredictionOut, PlayerPropOut)
 from app.crud.players import get_player_by_id, search_players_by_name, get_player_current_team_tri_code
-from app.crud.skater_game_logs import get_skater_last_5_basic_stats_from_db, get_player_game_log_by_game_and_player_id, get_skater_season_basic_stats_from_db
+from app.crud.skater_game_logs import get_skater_last_5_basic_stats_from_db, get_player_game_log_by_game_and_player_id, get_skater_season_basic_stats_from_db, get_latest_logged_season
 from app.crud.goalie_game_logs import get_goalie_last_5_basic_stats_from_db, get_goalie_season_basic_stats_from_db
 from predictions.predict import predict_skater, predict_goalie
 from app.edge_board import price_props
 from app.models import Games
 
 router = APIRouter(prefix="/players", tags=["players"])
+
+async def resolve_season(db, season: str) -> int:
+    """A season start year, or "current": the latest season with game logs, so the site follows the calendar
+    without showing an empty season before its first game is logged."""
+    if season == "current":
+        latest = await get_latest_logged_season(db)
+        if latest is None:
+            raise HTTPException(status_code=404, detail="No game logs in DB")
+        return latest
+    try:
+        return int(season)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid season {season!r}: use a start year like 2026 or 'current'")
 
 @router.get("/get/skater/game_log/{game_id}/{player_id}", status_code=200, response_model=PlayerGameLogGetOut)
 async def get_skater_game_log(game_id: int, player_id: int, db = Depends(get_db)):
@@ -43,8 +56,9 @@ async def get_player_game_log(game_id: int, player_id: int, db = Depends(get_db)
         raise HTTPException(status_code=500, detail=f"Error retrieving game log for goalie {player_id} and game {game_id} from DB: {e}")
 
 @router.get("/skater/{player_id}/basic_stats/{season}", status_code=200, response_model=SkaterSeasonBasicStatsGetOut)
-async def get_skater_season_basic_stats(player_id: int, season: int, db = Depends(get_db)):
+async def get_skater_season_basic_stats(player_id: int, season: str, db = Depends(get_db)):
     """Fetches basic season stats for a skater by player ID and season."""
+    season = await resolve_season(db, season)
     try:
         stats = await get_skater_season_basic_stats_from_db(db, player_id, season)
         print(stats)
@@ -136,8 +150,9 @@ async def get_goalie_last_5_basic_stats(player_id: int, db = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error retrieving last 5 games stats for goalie {player_id} from DB: {e}")
 
 @router.get("/goalie/{player_id}/basic_stats/{season}", status_code=200, response_model=GoalieSeasonBasicStatsGetOut)
-async def get_goalie_season_basic_stats(player_id: int, season: int, db = Depends(get_db)):
+async def get_goalie_season_basic_stats(player_id: int, season: str, db = Depends(get_db)):
     """Fetches basic season stats for a goalie by player ID and season."""
+    season = await resolve_season(db, season)
     try:
         stats = await get_goalie_season_basic_stats_from_db(db, player_id, season)
         if stats:
@@ -226,8 +241,9 @@ async def get_goalie_prediction(player_id: int, db = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error retrieving prediction for goalie {player_id}: {e}")
 
 @router.get("/top_players/{player_type}/{season}/{n}", status_code=200, response_model=list[TeamRosteredPlayer])
-async def get_top_players(player_type: str, season: int, n: int, db = Depends(get_db)):
+async def get_top_players(player_type: str, season: str, n: int, db = Depends(get_db)):
     """Fetches the top n skaters or goalies from the database."""
+    season = await resolve_season(db, season)
     try:
         if player_type == "skaters":
             top_n_players = await get_top_n_skaters(db, n, season)
