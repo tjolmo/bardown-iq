@@ -186,3 +186,139 @@
   .bd-sched-row { gap: var(--space-4) var(--space-5); padding: var(--space-5) var(--space-4); }
   .bd-sched-status { flex-direction: row; flex-wrap: wrap; flex-basis: 100%; }
 }
+
+/* Player and goalie pages: the rink with the headshot at centre ice, a card-tab per view, then the view */
+.pl-hero-grid { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--space-8); padding: var(--space-8) 9%; min-height: 280px; box-sizing: border-box; }
+.pl-zone-right { justify-self: end; align-items: flex-end; text-align: right; }
+.pl-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: 13px; font-weight: 700; color: var(--ink-muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.pl-meta img { width: 36px; height: 36px; object-fit: contain; }
+.pl-num { font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 22px; color: var(--goal-red); letter-spacing: 0; }
+.pl-face { width: 170px; height: 170px; border-radius: var(--radius-round); border: 3px solid var(--blue-line); background: var(--chip-quiet); overflow: hidden; box-sizing: border-box; }
+.pl-face img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pl-season { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); margin-top: var(--space-2); }
+.pl-season div { display: flex; flex-direction: column; }
+.pl-season .bd-score { font-size: 40px; }
+.pl-next-opp { display: flex; align-items: center; gap: var(--space-3); }
+.pl-next-opp img { width: 72px; height: 72px; object-fit: contain; }
+.pl-vs { font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 26px; color: var(--ink-muted); text-transform: uppercase; }
+
+.pl-maintabs { position: sticky; top: 69px; z-index: 5; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: var(--space-3); padding: var(--space-3) 0; background: var(--ice); }
+.bd-page a.pl-maintab { display: flex; align-items: center; gap: var(--space-4); min-height: 72px; padding: var(--space-3) var(--space-5); border: var(--border-strong) solid var(--line); border-radius: var(--radius-card); background: var(--boards); color: var(--ink); box-sizing: border-box; }
+.bd-page a.pl-maintab:hover { border-color: var(--ink); color: var(--ink); }
+.bd-page a.pl-maintab[aria-current="page"] { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.pl-maintab-num { font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 40px; line-height: 1; font-variant-numeric: tabular-nums; min-width: 56px; }
+.pl-maintab-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pl-maintab-label { font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 22px; line-height: 1; text-transform: uppercase; }
+.pl-maintab-sub { font-size: 13px; font-weight: 600; color: var(--ink-muted); }
+.pl-maintab[aria-current="page"] .pl-maintab-sub { color: var(--on-ink); }
+
+/* The model's numbers: one tile per stat it predicts */
+.pl-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: var(--space-5); }
+.pl-tile { display: flex; flex-direction: column; gap: var(--space-3); background: var(--boards); border: var(--border-strong) solid var(--line); border-radius: var(--radius-card); padding: var(--space-5) var(--space-6); }
+.pl-tile:hover { border-color: var(--ink); }
+.bd-page a.pl-tile-link { justify-content: center; background: var(--ice); border-style: dashed; }
+.pl-tile-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.pl-big { font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 52px; line-height: 0.95; font-variant-numeric: tabular-nums; }
+.pl-sub { font-size: 13px; color: var(--ink-muted); }
+.pl-sub strong { color: var(--ink); }
+.pl-odds { position: relative; height: 22px; border: var(--border-strong) solid var(--ink); border-radius: 12px; overflow: hidden; background: var(--boards); box-sizing: border-box; }
+.pl-odds i { position: absolute; top: 0; bottom: 0; display: block; }
+.pl-odds-fill { left: 0; background: var(--chip-quiet); }
+.pl-odds-half { left: calc(50% - 1px); width: 2px; background: var(--line-dashed); }
+.pl-odds-mark { width: 0; border-left: 2px dashed var(--goal-red); }
+.pl-odds .pl-odds-puck { top: 3px; bottom: auto; width: 16px; height: 12px; margin-left: -8px; border-radius: var(--radius-round); background: var(--ink); box-shadow: var(--shadow-puck); }
+.pl-odds-scale { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; color: var(--ink-subtle); font-variant-numeric: tabular-nums; }
+
+/* Props: one row per side on a single board */
+.pl-props { list-style: none; margin: 0; padding: 0; background: var(--boards); border: var(--border-strong) solid var(--line); border-radius: var(--radius-card); }
+.pl-prop { position: relative; display: grid; grid-template-columns: minmax(150px, 1.3fr) minmax(120px, 1fr) minmax(130px, 1fr) minmax(170px, 1.4fr) auto; align-items: center; gap: var(--space-4) var(--space-6); padding: var(--space-5) var(--space-6); border-top: 1px dashed var(--line-dashed); }
+.pl-prop:first-child { border-top: 0; }
+.pl-prop-head { padding-top: var(--space-4); padding-bottom: var(--space-4); }
+.pl-prop-head .bd-label { align-self: auto; }
+.pl-market { font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 22px; line-height: 1; text-transform: uppercase; }
+.pl-side { display: inline-flex; align-items: baseline; gap: var(--space-2); font-weight: 800; font-variant-numeric: tabular-nums; }
+.pl-side b { font-family: var(--font-display); font-stretch: 75%; font-size: 26px; font-weight: 900; }
+.pl-price { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
+.pl-price strong { font-size: 18px; font-weight: 800; }
+.pl-price span { font-size: 13px; color: var(--ink-muted); font-weight: 600; }
+.pl-model { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.pl-model strong { color: var(--ink); }
+.pl-model .pl-odds { height: 14px; }
+.pl-model .pl-odds .pl-odds-puck { top: 1px; width: 10px; height: 8px; margin-left: -5px; }
+.pl-edge { min-width: 76px; justify-content: center; padding: 4px 12px; }
+.pl-books { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--space-3); margin-left: calc(-1 * var(--space-3)); background: none; border: 0; font: inherit; font-size: 13px; font-weight: 700; color: var(--blue-line); cursor: pointer; }
+.pl-book-list { grid-column: 1 / -1; list-style: none; margin: 0; padding: var(--space-3) var(--space-4); background: var(--ice); border-radius: var(--radius-chip); display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-8); font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ink-muted); }
+.pl-book-list li { display: flex; gap: 10px; }
+.pl-book-list strong { color: var(--ink); }
+
+/* Last five: bars on the board beside the log */
+.pl-pick { position: relative; display: inline-flex; align-items: center; gap: var(--space-3); }
+.pl-select { appearance: none; -webkit-appearance: none; height: 44px; padding: 0 44px 0 18px; border: var(--border-strong) solid var(--ink); border-radius: var(--radius-pill); background: var(--boards); color: var(--ink); font: inherit; font-weight: 800; cursor: pointer; }
+.pl-select:hover { background: var(--ice); }
+.pl-pick svg { position: absolute; right: 16px; top: 50%; margin-top: -8px; pointer-events: none; }
+.pl-split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+.pl-panel { position: relative; background: var(--boards); border: var(--border-strong) solid var(--line); border-radius: var(--radius-card); padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.pl-bars { position: relative; height: 230px; display: flex; align-items: flex-end; gap: 14px; padding-left: 28px; border-bottom: var(--border-strong) solid var(--ink); }
+.pl-bar-col { flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.pl-bar { width: 100%; max-width: 46px; background: var(--ink); border-radius: 4px 4px 0 0; }
+.pl-ghost { width: 100%; max-width: 46px; border: 2px dashed var(--ink); border-bottom: 0; border-radius: 4px 4px 0 0; box-sizing: border-box; background: var(--ice); }
+.pl-proj { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--goal-red); }
+.pl-proj span { position: absolute; left: 0; top: -20px; font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: var(--goal-red); background: var(--boards); padding-right: 4px; }
+.pl-ticks { display: flex; gap: 14px; padding-left: 28px; }
+.pl-ticks > span { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 12px; line-height: 1.3; color: var(--ink-muted); text-align: center; }
+.pl-ticks img { width: 26px; height: 26px; object-fit: contain; }
+.pl-ticks strong { color: var(--ink); }
+.pl-panel .bd-note { position: absolute; right: 28px; top: 14px; }
+
+/* Stat tables: one grid per row, so a wide table scrolls in its own box */
+.pl-season-bar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-6); border-bottom: var(--border-strong) solid var(--line); }
+.pl-tabs { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.pl-tab { min-height: 44px; padding: var(--space-3) 14px; background: none; border: 0; font: inherit; font-weight: 600; color: var(--ink-muted); cursor: pointer; }
+.pl-tab:hover { color: var(--goal-red); }
+.pl-tab[aria-selected="true"] { font-weight: 700; color: var(--ink); box-shadow: inset 0 -4px 0 var(--goal-red); }
+.pl-filters { display: flex; gap: var(--space-2); padding-bottom: var(--space-2); }
+.pl-filter { min-height: 40px; padding: 0 14px; border-radius: var(--radius-pill); border: var(--border-strong) solid var(--line); background: var(--boards); font: inherit; font-size: 13px; font-weight: 800; letter-spacing: 0.06em; color: var(--ink-muted); cursor: pointer; }
+.pl-filter:hover { border-color: var(--ink); color: var(--ink); }
+.pl-filter[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.pl-caption { margin: 0; font-size: 13px; color: var(--ink-muted); }
+.pl-scroll { overflow: auto; max-height: 900px; background: var(--boards); border: var(--border-strong) solid var(--line); border-radius: var(--radius-card); }
+.pl-flush-box { overflow-x: auto; }
+.pl-gt { font-variant-numeric: tabular-nums; }
+.pl-tr { display: grid; align-items: center; column-gap: var(--space-2); padding: 0 var(--space-5); border-top: 1px dashed var(--line-dashed); min-height: 48px; }
+.pl-tr:hover { background: var(--ice); }
+.pl-th { position: sticky; top: 0; z-index: 1; background: var(--boards); border-top: 0; border-bottom: var(--border-strong) solid var(--ink); min-height: 44px; }
+.pl-th:hover, .pl-tf:hover { background: var(--boards); }
+.pl-th > span { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-subtle); text-align: center; }
+.pl-tf { position: sticky; bottom: 0; background: var(--boards); border-top: var(--border-strong) solid var(--ink); }
+.pl-c { text-align: center; font-weight: 700; padding: 10px 0; }
+.pl-tr > .pl-c:nth-child(-n+2) { text-align: left; }
+.pl-c-date { color: var(--ink-muted); font-weight: 600; white-space: nowrap; }
+.pl-c-opp small { display: inline-block; width: 22px; color: var(--ink-subtle); font-size: 13px; }
+.pl-c-dim { color: var(--ink-subtle); }
+.pl-c-exp { display: block; font-size: 11px; font-weight: 600; color: var(--ink-subtle); line-height: 1.1; }
+.pl-c-strong { background: var(--ink); color: var(--on-ink); border-radius: 8px; }
+.pl-tf > .pl-c { font-family: var(--font-display); font-stretch: 75%; font-weight: 900; font-size: 20px; }
+.pl-tf > .pl-c:first-child { font-family: var(--font-body); font-stretch: 100%; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-subtle); }
+.pl-tf .pl-c-exp { font-family: var(--font-body); font-stretch: 100%; }
+.pl-tr > .pl-hl { background: var(--ice); box-shadow: 0 0 0 4px var(--ice); }
+.pl-th > .pl-hl { color: var(--ink); box-shadow: inset 0 -4px 0 var(--goal-red); align-self: stretch; display: grid; place-items: center; }
+.pl-flush .pl-tr { padding: 0; }
+.pl-flush .pl-th, .pl-flush .pl-tf { position: static; }
+
+@media (max-width: 900px) {
+  .pl-hero-grid { grid-template-columns: minmax(0, 1fr); justify-items: start; padding: var(--space-10) 9%; }
+  .pl-face { width: 120px; height: 120px; grid-row: 1; }
+  .pl-zone-right { justify-self: start; align-items: flex-start; text-align: left; }
+  .pl-zone-right .bd-row { justify-content: flex-start; }
+  .pl-split { grid-template-columns: minmax(0, 1fr); }
+  .pl-prop { grid-template-columns: minmax(0, 1fr) auto; }
+  .pl-prop-head { display: none; }
+  .pl-maintabs { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 680px) {
+  .pl-prop { padding: var(--space-5) var(--space-4); }
+  .bd-page a.pl-maintab { flex-direction: column; align-items: flex-start; gap: var(--space-1); padding: var(--space-3); min-height: 64px; }
+  .pl-maintab-num { font-size: 30px; min-width: 0; }
+  .pl-maintab-label { font-size: 18px; }
+}
+.pl-face svg { width: 100%; height: 100%; display: block; }

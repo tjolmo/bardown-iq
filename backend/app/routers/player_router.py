@@ -8,10 +8,12 @@ from app.crud.games import get_next_game_info_by_tri_code
 from app.dependencies import get_db
 from app.schemas.player import (GoalieLast5BasicStatsGetOut, GoalieSeasonBasicStatsGetOut, GoaliePredictionOut, PlayerGameLogGetOut, GoalieGameLogGetOut, 
                                 PlayerNextGameGetOut, SkaterLast5BasicStatsGetOut, SkaterSeasonBasicStatsGetOut, PlayerBasicInfoOut, 
-                                PlayerSearchResultOut, PlayerPredictionOut, PlayerPropOut)
+                                PlayerSearchResultOut, PlayerPredictionOut, PlayerPropOut, SkaterGameOut, GoalieGameOut)
 from app.crud.players import get_player_by_id, search_players_by_name, get_player_current_team_tri_code
 from app.crud.skater_game_logs import get_skater_last_5_basic_stats_from_db, get_player_game_log_by_game_and_player_id, get_skater_season_basic_stats_from_db, get_latest_logged_season
-from app.crud.goalie_game_logs import get_goalie_last_5_basic_stats_from_db, get_goalie_season_basic_stats_from_db
+from app.crud.goalie_game_logs import get_goalie_last_5_basic_stats_from_db, get_goalie_season_basic_stats_from_db, get_goalie_game_logs
+from app.crud.skater_game_logs import get_skater_game_logs
+from app.crud.prediction_log import get_pregame_player_expectations
 from predictions.predict import predict_skater, predict_goalie
 from app.edge_board import price_props
 from app.models import Games
@@ -164,6 +166,58 @@ async def get_goalie_season_basic_stats(player_id: int, season: str, db = Depend
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving season {season} stats for goalie {player_id} from DB: {e}")
 
+def _iso_date(game_date: int) -> str:
+    """YYYYMMDD -> YYYY-MM-DD"""
+    return datetime.datetime.strptime(str(game_date), "%Y%m%d").date().isoformat()
+
+async def _skater_games(db, player_id: int, season: int | None, limit: int | None) -> list[SkaterGameOut]:
+    logs = await get_skater_game_logs(db, player_id, season=season, limit=limit)
+    expected = await get_pregame_player_expectations(db, player_id, [g.game_id for g in logs])
+    return [SkaterGameOut(
+        game_id=g.game_id, date=_iso_date(g.game_date), opposing_team_tricode=g.opposing_team_tricode,
+        home_away=g.home_away, toi=g.toi, goals=g.goals, primary_assists=g.primary_assists,
+        secondary_assists=g.secondary_assists, assists=g.primary_assists + g.secondary_assists, points=g.points,
+        shots_on_goal=g.shots_on_goal, hits=g.hits, blocked_shots=g.blocked_shots, pp_points=g.pp_points,
+        pp_toi=g.pp_toi, x_goals=g.x_goals, shot_attempts=g.shot_attempts, high_danger_shots=g.high_danger_shots,
+        on_ice_x_goals_percentage=g.on_ice_x_goals_percentage, game_score=g.game_score,
+        expected=expected.get(g.game_id, {}),
+    ) for g in logs]
+
+async def _goalie_games(db, player_id: int, season: int | None, limit: int | None) -> list[GoalieGameOut]:
+    logs = await get_goalie_game_logs(db, player_id, season=season, limit=limit)
+    expected = await get_pregame_player_expectations(db, player_id, [g.game_id for g in logs])
+    return [GoalieGameOut(
+        game_id=g.game_id, date=_iso_date(g.game_date), opposing_team_tricode=g.opposing_team_tricode,
+        home_away=g.home_away, toi=g.toi,
+        # MoneyPuck's goalie sog counts the goals too
+        shots_against=g.sog, saves=g.sog - g.goals_against, goals_against=g.goals_against,
+        x_goals_against=g.x_goals_against, high_danger_shots=g.high_danger_shots,
+        high_danger_x_goals=g.high_danger_x_goals, rebounds=g.rebounds, x_rebounds=g.x_rebounds,
+        expected=expected.get(g.game_id, {}),
+    ) for g in logs]
+
+@router.get("/skater/{player_id}/game_log/last/{n}", status_code=200, response_model=list[SkaterGameOut])
+async def get_skater_recent_game_log(player_id: int, n: int, db = Depends(get_db)):
+    """A skater's last n games across seasons, oldest first, each with the model's pre-game expectations."""
+    return await _skater_games(db, player_id, season=None, limit=max(1, min(n, 82)))
+
+@router.get("/skater/{player_id}/game_log/{season}", status_code=200, response_model=list[SkaterGameOut])
+async def get_skater_season_game_log(player_id: int, season: str, db = Depends(get_db)):
+    """Every game of a skater's season ("current" or a start year), oldest first, each with the model's pre-game
+    expectations."""
+    return await _skater_games(db, player_id, season=await resolve_season(db, season), limit=None)
+
+@router.get("/goalie/{player_id}/game_log/last/{n}", status_code=200, response_model=list[GoalieGameOut])
+async def get_goalie_recent_game_log(player_id: int, n: int, db = Depends(get_db)):
+    """A goalie's last n games across seasons, oldest first, each with the model's pre-game expectations."""
+    return await _goalie_games(db, player_id, season=None, limit=max(1, min(n, 82)))
+
+@router.get("/goalie/{player_id}/game_log/{season}", status_code=200, response_model=list[GoalieGameOut])
+async def get_goalie_season_game_log(player_id: int, season: str, db = Depends(get_db)):
+    """Every game of a goalie's season ("current" or a start year), oldest first, each with the model's pre-game
+    expectations."""
+    return await _goalie_games(db, player_id, season=await resolve_season(db, season), limit=None)
+
 @router.get("/search", status_code=200, response_model=list[PlayerSearchResultOut])
 async def search_players(q: str = Query(..., min_length=1), limit: int = 3, db=Depends(get_db)):
     """Searches players by name."""
@@ -230,6 +284,7 @@ async def get_goalie_prediction(player_id: int, db = Depends(get_db)):
             goals_against=round(pred_ga, 2),
             saves=round(pred_saves, 2),
             save_percentage=round(pred_sv_pct, 4) if pred_sv_pct is not None else None,
+            shots_against=round(pred_sog, 2),
             starting=prediction.get("starting"),
             starter_status=prediction.get("starter_status"),
         )

@@ -4,6 +4,9 @@ export interface Team {
   logoUrl: string;
 }
 
+// tricode -> team, for names and logos
+export type TeamLookup = Record<string, Team>;
+
 export interface PredictedScore {
   away: number;
   home: number;

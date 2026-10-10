@@ -1,11 +1,9 @@
-import type { ReactNode } from "react";
-
 export interface UpcomingGame {
-    date: string;
-    opposing_team_tricode: string;
-    venue: string;
-    time: Date;
-    home_away: "HOME" | "AWAY";
+    date: string | null;
+    opposing_team_tricode: string | null;
+    venue: string | null;
+    time: string | null;        // ISO puck drop
+    home_away: "HOME" | "AWAY" | null;
 }
 
 export interface PlayerData {
@@ -14,24 +12,6 @@ export interface PlayerData {
     team: string;
     position: Position;
     headshotUrl: string;
-    upcomingGame: UpcomingGame;
-}
-
-export interface PlayerHeaderProps extends PlayerData {
-    seasonSummary: { label: string; value: number | string }[];
-}
-
-export interface PlayerUpcomingGameProps {
-    upcomingGame: UpcomingGame;
-
-}
-export interface PlayerPredictionCardProps {
-    label: string;
-    value: number | string;
-    icon: string;
-    color: string;
-    bgColor: string;
-    subtext: ReactNode;
 }
 
 export interface PlayerFullData {

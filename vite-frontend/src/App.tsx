@@ -2,10 +2,9 @@ import { Routes, Route, Navigate } from "react-router-dom";
 
 import SkaterDashboard from "./pages/SkaterDashboard";
 import GoalieDashboard from "./pages/GoalieDashboard";
-import { SkaterPredictionPanel } from "./components/skater/SkaterPredictionPanel";
-import { SkaterRecentGames } from "./components/skater/SkaterRecentGames";
-import { GoaliePredictionPanel } from "./components/goalie/GoaliePredictionPanel";
-import { GoalieRecentGames } from "./components/goalie/GoalieRecentGames";
+import { SkaterLastFive, SkaterNextGame, SkaterSeason } from "./components/skater/SkaterPanels";
+import { GoalieLastFive, GoalieNextGame, GoalieSeason } from "./components/goalie/GoaliePanels";
+import { PlayerPropsPanel } from "./components/player/PlayerPropsPanel";
 import TeamSchedulePage from "./pages/TeamSchedulePage";
 import RosterPage from "./pages/RosterPage";
 import DailySchedulePage from "./pages/DailySchedulePage";
@@ -19,16 +18,21 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Navigate to="/schedule/today" />} />
 
+      {/* the tabs switch with history replace (PlayerTabs), so Back leaves the player page in one step */}
       <Route path="/player/:id" element={<SkaterDashboard />}>
         <Route index element={<Navigate to="predictions" replace />} />
-        <Route path="predictions" element={<SkaterPredictionPanel />} />
-        <Route path="recent" element={<SkaterRecentGames />} />
+        <Route path="predictions" element={<SkaterNextGame />} />
+        <Route path="props" element={<PlayerPropsPanel />} />
+        <Route path="recent" element={<SkaterLastFive />} />
+        <Route path="season" element={<SkaterSeason />} />
       </Route>
 
       <Route path="/goalie/:id" element={<GoalieDashboard />}>
         <Route index element={<Navigate to="predictions" replace />} />
-        <Route path="predictions" element={<GoaliePredictionPanel />} />
-        <Route path="recent" element={<GoalieRecentGames />} />
+        <Route path="predictions" element={<GoalieNextGame />} />
+        <Route path="props" element={<PlayerPropsPanel />} />
+        <Route path="recent" element={<GoalieLastFive />} />
+        <Route path="season" element={<GoalieSeason />} />
       </Route>
 
       <Route path="/schedule/team/:tricode" element={<TeamSchedulePage />} />

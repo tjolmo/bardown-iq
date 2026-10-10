@@ -1,11 +1,11 @@
 import { apiGet } from "./client";
-import type { GoalieGameStats, GoalieSeasonStats, GoalieGamePredictions } from "../types/goalie";
+import type { GoalieGame, GoalieGamePredictions } from "../types/goalie";
 
-export const getGoalieSeasonStats = (id: number) =>
-    apiGet<GoalieSeasonStats>(`/players/goalie/${id}/basic_stats/current`);
+export const getGoalieSeasonGames = (id: number, season: string = "current") =>
+    apiGet<GoalieGame[]>(`/players/goalie/${id}/game_log/${season}`);
 
-export const getGoalieRecentGames = (id: number) =>
-    apiGet<GoalieGameStats[]>(`/players/goalie/${id}/last_5/basic_stats`);
+export const getGoalieLastGames = (id: number, n: number) =>
+    apiGet<GoalieGame[]>(`/players/goalie/${id}/game_log/last/${n}`);
 
 export const getGoaliePredictions = (id: number) =>
     apiGet<GoalieGamePredictions>(`/players/goalie/${id}/prediction`);

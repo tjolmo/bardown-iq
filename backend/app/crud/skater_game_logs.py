@@ -122,3 +122,14 @@ async def get_skater_last_5_basic_stats_from_db(db: AsyncSession, player_id: int
             } for game in last_5
         ]
     return None
+
+async def get_skater_game_logs(db: AsyncSession, player_id: int, season: int | None = None,
+                               limit: int | None = None) -> list[SkaterGameLog]:
+    """A skater's game logs, oldest first: one season's (`season`), or the latest `limit` across seasons."""
+    stmt = select(SkaterGameLog).where(SkaterGameLog.player_id == player_id)
+    if season is not None:
+        stmt = stmt.where(SkaterGameLog.season == season)
+    stmt = stmt.order_by(SkaterGameLog.game_date.desc())
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    return list(reversed((await db.execute(stmt)).scalars().all()))

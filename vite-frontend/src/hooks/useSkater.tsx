@@ -1,35 +1,15 @@
-import { useState, useEffect } from "react";
-import { getSkaterSeasonStats, getSkaterRecentGames, getSkaterPredictions } from "../api/skater";
+import { getSkaterLastGames, getSkaterPredictions, getSkaterSeasonGames } from "../api/skater";
 import type { SkaterData } from "../types/skater";
-import { getPlayerBasicInfo, getPlayerUpcomingGame, getPlayerProps } from "../api/player";
+import { loadPlayerBasics, usePlayerPage } from "./usePlayerPage";
 
-export function useSkater(id: number) {
-  const [data, setData] = useState<SkaterData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+const loadSkater = async (id: number): Promise<SkaterData> => {
+  const [basics, predictions, season, recent] = await Promise.all([
+    loadPlayerBasics(id),
+    getSkaterPredictions(id).catch(() => null),
+    getSkaterSeasonGames(id).catch(() => []),
+    getSkaterLastGames(id, 5).catch(() => []),
+  ]);
+  return { ...basics, predictions, season, recent };
+};
 
-  useEffect(() => {
-    Promise.all([
-      getPlayerBasicInfo(id),
-      getPlayerUpcomingGame(id).catch(() => null),
-      getSkaterSeasonStats(id).catch(() => null),
-      getSkaterRecentGames(id).catch(() => null),
-      getSkaterPredictions(id).catch(() => null),
-      getPlayerProps(id),
-    ])
-      .then(([playerInfo, upcomingGame, seasonStats, recentGames, gamePredictions, playerProps]) => {
-        setData({
-          ...playerInfo,
-          upcomingGame: upcomingGame!,
-          gamePredictions: gamePredictions!,
-          seasonStats: seasonStats!,
-          recentGames: recentGames!,
-          playerProps: playerProps,
-        });
-      })
-      .catch(setError)
-      .finally(() => setLoading(false));
-  }, [id]);
-
-  return { data, loading, error };
-}
+export const useSkater = (id: number) => usePlayerPage(id, loadSkater);
