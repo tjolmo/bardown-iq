@@ -104,6 +104,7 @@ class LineupPlayerOut(BaseModel):
     headshot: str | None = None
     slot: str | None = None
     injuryStatus: str | None = None   # day_to_day players can be in the lineup; out / ir / ltir / suspended can't
+    gamesScratched: int | None = None  # players coming into the lineup: straight games scratched before it
 
 class LineupUnitOut(BaseModel):
     """A projected line (F1-F4), defense pair (D1-D3), power-play (PP1-PP2) or penalty-kill (PK1-PK2) unit."""
@@ -120,6 +121,7 @@ class LineupGoalieOut(BaseModel):
 class LineupGameOut(BaseModel):
     id: int
     startTime: datetime.datetime
+    venue: str | None = None
     opponent: str
     home: bool
     gameState: str

@@ -1,6 +1,7 @@
 import { apiGet } from "./client";
 import type { Team, TeamScheduledGame, SearchTeamResult } from "../types/teams";
 import type { PlayerFullData } from "../types/player";
+import type { TeamLineup } from "../types/lineup";
 
 export const getTeams = () =>
     apiGet<Team[]>("/teams/all");
@@ -13,3 +14,5 @@ export const getTeamCurrentRoster = (tricode: string) =>
 
 export const getSearchTeam = (query: string, limit: number = 5) =>
     apiGet<SearchTeamResult[]>(`/teams/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+export const getTeamLineup = (tricode: string) =>
+    apiGet<TeamLineup>(`/teams/${tricode}/lineup`);

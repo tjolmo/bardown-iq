@@ -120,12 +120,13 @@ class TeamGame:
     opponent: str
     home: bool
     game_state: str
+    venue: str | None = None
 
 
 def _team_game(g: Games, team: str) -> TeamGame:
     home = g.home_team_tri_code == team
     return TeamGame(game_id=g.id, start_time=g.start_time, home=home, game_state=g.game_state,
-                    opponent=g.away_team_tri_code if home else g.home_team_tri_code)
+                    opponent=g.away_team_tri_code if home else g.home_team_tri_code, venue=g.venue)
 
 
 async def get_recent_lineup_games(db: AsyncSession, team: str, before: datetime.datetime | None = None,

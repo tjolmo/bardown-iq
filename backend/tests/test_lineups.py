@@ -349,9 +349,11 @@ def test_team_lineup_endpoint_data():
         dressed = {p.id for u in out.forwards + out.defense for p in u.players}
         assert TANEV not in dressed and BLANKENBURG in dressed       # the only healthy D: he draws in
         assert [p.id for p in out.changes.playersOut] == [TANEV] and [p.id for p in out.changes.playersIn] == [BLANKENBURG]
+        assert out.changes.playersIn[0].gamesScratched == 1 and out.game.venue == "v"
         assert {(s.player.id, s.healthy, s.gamesScratched) for s in out.scratches} == {(MACEWEN, True, 1)}
         assert {i.playerId: i.status for i in out.injuries} == {TANEV: "ir", BLANKENBURG: "day_to_day", None: "out"}
         out.model_dump_json()
+        assert out.game.startTime.tzinfo is not None and out.injuryReportAsOf.tzinfo is not None
         assert out.injuries[0].playerId == TANEV                     # out before day-to-day
         # ESPN's probable starter tonight; last game's starter (Bobrovsky) is the backup
         assert [(g.role, g.player.id, g.status) for g in out.goalies] == [

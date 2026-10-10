@@ -25,6 +25,13 @@ UNIT_SLACK = 4
 RETURN_LOOKBACK = datetime.timedelta(days=30)
 
 
+def _utc(value: datetime.datetime | None) -> datetime.datetime | None:
+    """Timestamps go out in UTC with the offset written (SQLite hands them back without one)."""
+    if value is None:
+        return None
+    return value.replace(tzinfo=datetime.timezone.utc) if value.tzinfo is None else value.astimezone(datetime.timezone.utc)
+
+
 def _nan_to_none(value):
     """None for missing values of any kind (None, NaN, NaT), as pandas leaves them in an injury report row."""
     try:
@@ -157,8 +164,9 @@ async def build_team_lineup(db: AsyncSession, team: str) -> TeamLineupOut:
 
     return TeamLineupOut(
         team=team,
-        game=LineupGameOut(id=next_game.game_id, startTime=next_game.start_time, opponent=next_game.opponent,
-                           home=next_game.home, gameState=next_game.game_state) if next_game else None,
+        game=LineupGameOut(id=next_game.game_id, startTime=_utc(next_game.start_time), venue=next_game.venue,
+                           opponent=next_game.opponent, home=next_game.home, gameState=next_game.game_state)
+        if next_game else None,
         status=projection.lineup_status if projection else "projected",
         basedOn=projection.based_on if projection else [],
         forwards=[_unit_out(u, people) for u in projection.forwards] if projection else [],
@@ -167,17 +175,18 @@ async def build_team_lineup(db: AsyncSession, team: str) -> TeamLineupOut:
         penaltyKill=[_unit_out(u, people) for u in projection.penalty_kill] if projection else [],
         goalies=goalies,
         extras=[people.out(p) for p in projection.extras] if projection else [],
-        changes=LineupChangesOut(playersIn=[people.out(p) for p in projection.changes["in"]],
+        changes=LineupChangesOut(playersIn=[people.out(p).model_copy(update={"gamesScratched": _scratch_streak(p, games)})
+                                            for p in projection.changes["in"]],
                                  playersOut=[people.out(p) for p in projection.changes["out"]])
         if projection else LineupChangesOut(playersIn=[], playersOut=[]),
         injuries=[TeamInjuryOut(playerId=r.get("player_id"), name=r.get("full_name"), position=r.get("position"),
                                 status=r["status"], injuryType=r.get("injury_type"), returnDate=r.get("return_date"),
-                                comment=r.get("comment"), reportedAt=r.get("report_date"),
+                                comment=r.get("comment"), reportedAt=_utc(r.get("report_date")),
                                 player=people.out(int(r["player_id"])) if r.get("player_id") is not None else None)
                   for r in sorted(injury_rows, key=lambda r: (r["status"] == "day_to_day", r.get("full_name") or ""))],
         scratches=[TeamScratchOut(player=people.out(p), healthy=p not in injured,
                                   gamesScratched=_scratch_streak(p, streak_games), gameId=scratch_game)
                    for p in scratched],
-        injuryReportAsOf=_nan_to_none(report["fetched_at"].iloc[0]) if report is not None and not report.empty else None,
-        lineupsUpdatedAt=updated_at,
+        injuryReportAsOf=_utc(_nan_to_none(report["fetched_at"].iloc[0])) if report is not None and not report.empty else None,
+        lineupsUpdatedAt=_utc(updated_at),
     )

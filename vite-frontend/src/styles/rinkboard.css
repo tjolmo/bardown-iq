@@ -322,3 +322,102 @@
   .pl-maintab-label { font-size: 18px; }
 }
 .pl-face svg { width: 100%; height: 100%; display: block; }
+
+/* Roster page: the next game's lines on the board, then who's out; a roster table on its own tab */
+.rs-hero-next { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); }
+.rs-hero-next img { width: 64px; height: 64px; object-fit: contain; }
+.rs-hero-next .bd-display-xl { font-size: 64px; }
+.rs-tabs { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4) var(--space-8); }
+.rs-seg { display: inline-flex; gap: var(--space-1); padding: var(--space-1); border: var(--border-strong) solid var(--ink); border-radius: 26px; background: var(--boards); }
+.rs-seg button { display: inline-flex; align-items: center; gap: var(--space-2); height: 40px; padding: 0 18px; border: 0; border-radius: 20px; background: transparent; color: var(--ink-muted); font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
+.rs-seg button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+.rs-seg-count { font-variant-numeric: tabular-nums; opacity: 0.75; }
+.rs-note { font-size: 13px; color: var(--ink-muted); max-width: 560px; }
+.rs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: var(--space-5); align-items: start; }
+.rs-subgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-5); align-items: start; }
+.rs-stack { display: flex; flex-direction: column; gap: var(--space-5); }
+.rs-card { background: var(--boards); border: var(--border-strong) solid var(--line); border-radius: var(--radius-card); padding: var(--space-6); display: flex; flex-direction: column; }
+.rs-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); padding-bottom: var(--space-2); }
+.rs-card-title { margin: 0; font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 26px; line-height: 1; text-transform: uppercase; }
+.rs-count { color: var(--ink-subtle); }
+.rs-row { border-top: 1px dashed var(--line-dashed); padding: 14px 0; }
+.rs-line { display: grid; grid-template-columns: 44px minmax(0, 1fr) 160px; align-items: center; gap: var(--space-3); }
+.rs-line-n { display: flex; flex-direction: column; align-items: center; line-height: 1; }
+.rs-line-n .bd-score { font-size: 40px; }
+.rs-line-n small { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--ink-subtle); }
+.rs-slots { display: grid; grid-template-columns: repeat(var(--rs-cols, 3), minmax(0, 1fr)); gap: var(--space-2); }
+.rs-meta { display: flex; flex-direction: column; align-items: flex-end; text-align: right; line-height: 1.25; font-size: 12px; color: var(--ink-muted); }
+.rs-meta strong { font-size: 18px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+.rs-pair-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); font-size: 12px; color: var(--ink-muted); }
+.rs-pair-head strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* One player: a sweater-number disc, the slot, the name */
+.bd-page a.rs-player { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px; border-radius: 14px; color: var(--ink); }
+.rs-player-in { background: var(--chip-quiet); }
+.rs-disc { flex: none; width: 40px; height: 40px; border-radius: var(--radius-round); border: var(--border-strong) solid var(--ink); background: var(--boards); display: grid; place-items: center; box-sizing: border-box; font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 17px; font-variant-numeric: tabular-nums; }
+.rs-disc-lg { width: 56px; height: 56px; border-width: var(--border-rink); font-size: 22px; }
+.rs-player-text { min-width: 0; display: flex; flex-direction: column; line-height: 1.1; }
+.rs-slot { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; color: var(--ink-subtle); text-transform: uppercase; }
+.rs-slot b { color: var(--ink); }
+.rs-name { font-family: var(--font-display); font-weight: 900; font-stretch: 75%; font-size: 20px; line-height: 1.05; text-transform: uppercase; overflow-wrap: anywhere; }
+.rs-name-lg { font-size: 26px; }
+.bd-page a.rs-player:hover .rs-name { color: var(--goal-red); }
+.rs-goalie { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); padding: 14px 0; border-top: 1px dashed var(--line-dashed); }
+
+/* Special teams: compact pills */
+.rs-unit-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: 10px; }
+.rs-unit-name { display: flex; align-items: baseline; gap: 10px; }
+.rs-unit-name .bd-score { font-size: 26px; }
+.rs-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.bd-page a.rs-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 18px; background: var(--ice); color: var(--ink); }
+.rs-pill .rs-disc { width: 28px; height: 28px; font-size: 13px; }
+.rs-pill-d .rs-disc { border-color: var(--blue-line); }
+.rs-pill .rs-name { font-size: 17px; }
+.bd-page a.rs-pill:hover .rs-name { color: var(--goal-red); }
+
+/* Since last game: who's in and out */
+.rs-changes { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); background: var(--boards); border: var(--border-strong) solid var(--line); border-radius: var(--radius-card); padding: var(--space-4) var(--space-6); }
+.rs-change { display: flex; align-items: center; gap: var(--space-3); padding: 4px 16px 4px 4px; border-radius: 28px; background: var(--ice); }
+.rs-change-tag { display: inline-grid; place-items: center; height: 28px; padding: 0 10px; border-radius: 14px; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; box-sizing: border-box; }
+.rs-change-in { background: var(--ink); color: var(--on-ink); }
+.rs-change-out { border: var(--border-strong) solid var(--ink); }
+.rs-change .rs-name { font-size: 20px; }
+.rs-change small { font-size: 13px; font-weight: 600; color: var(--ink-muted); }
+.rs-changes .bd-note-tag { top: -20px; }
+
+/* Out of the lineup */
+.rs-out { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px var(--space-4); }
+.rs-out .rs-name { font-size: 20px; }
+.rs-out-pos { font-size: 13px; font-weight: 600; color: var(--ink-muted); margin-left: var(--space-2); }
+.rs-out-chip { justify-self: end; }
+.rs-out-detail { font-size: 13px; color: var(--ink-muted); }
+.rs-out-detail-end { justify-self: end; white-space: nowrap; }
+.rs-out-comment { grid-column: 1 / -1; font-size: 13px; color: var(--ink-muted); }
+
+/* Roster tab */
+.rs-table-wrap { overflow-x: auto; background: var(--boards); border: var(--border-strong) solid var(--line); border-radius: var(--radius-card); }
+.rs-table { width: 100%; min-width: 640px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.rs-table th { text-align: left; padding: var(--space-4) var(--space-3); font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-subtle); }
+.rs-table td { padding: var(--space-3); border-top: 1px dashed var(--line-dashed); }
+.rs-table th:first-child, .rs-table td:first-child { padding-left: var(--space-6); width: 64px; }
+.rs-table th:last-child, .rs-table td:last-child { padding-right: var(--space-6); }
+.rs-table .bd-score { font-size: 28px; }
+.rs-table .rs-name { font-size: 22px; }
+.rs-first { font-size: 13px; font-weight: 600; color: var(--ink-muted); }
+
+@media (max-width: 680px) {
+  .rs-hero-next .bd-display-xl { font-size: 44px; }
+  .rs-hero-next img { width: 44px; height: 44px; }
+  .rs-card { padding: var(--space-4); }
+  .rs-line { grid-template-columns: 1fr; gap: var(--space-2); }
+  .rs-line-n { flex-direction: row; gap: var(--space-2); align-items: baseline; }
+  .rs-line-n .bd-score { font-size: 24px; }
+  .rs-meta { align-items: flex-start; text-align: left; flex-direction: row; gap: var(--space-2); flex-wrap: wrap; }
+  .rs-meta strong { font-size: 14px; }
+  .rs-slots { gap: 4px; }
+  .bd-page a.rs-player { flex-direction: column; text-align: center; gap: 4px; padding: 8px 4px; }
+  .rs-player-text { align-items: center; max-width: 100%; }
+  .rs-name { font-size: 16px; max-width: 100%; }
+  .rs-changes { padding: var(--space-4); }
+  .rs-changes .bd-note-tag { display: none; }
+}
