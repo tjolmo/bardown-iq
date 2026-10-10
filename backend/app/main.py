@@ -11,8 +11,9 @@ from . import refresh
 from .database import AsyncSessionLocal
 from .schedules import (add_current_teams_to_db, add_old_teams_to_db, fetch_current_rosters_for_all_teams, 
                         fetch_current_schedules_for_all_teams, scrape_all_player_logs, scrape_team_stats,
-                        fetch_current_scores, fetch_current_game_lines, nightly_pipeline, pregame_odds_pipeline,
-                        morning_odds_pipeline, fetch_game_day_lineups)
+                        fetch_current_scores, fetch_current_game_lines, nightly_pipeline, morning_odds_pipeline,
+                        fetch_game_day_lineups, log_games_about_to_start, games_due_for_pregame_log,
+                        pregame_log_pipeline, STARTUP_LOG_LEAD, PREGAME_LOG_POLL_MINUTES)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from external.nhl.games import live_poll_minutes
 
@@ -21,21 +22,21 @@ def scheduler_enabled() -> bool:
     forward-test container's database, which does the fetching and logging)."""
     return os.environ.get("SCHEDULER_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
 
-def missed_pregame_log(now: datetime.datetime | None = None) -> bool:
-    """True when the container starts after the 21:00 UTC pregame run but before the game day ends (06:00 UTC):
-    the scheduler doesn't replay jobs due before it existed, and a pre-game prediction can't be logged later."""
-    now = now or datetime.datetime.now(datetime.timezone.utc)
-    return now.hour >= 21 or now.hour < 6
-
 async def run_startup_refresh():
     """Initial data refresh, run in the background so the API can serve requests while it works.
     Steps are ordered by dependency; a failing step is logged and does not stop the rest.
     Training only runs when a bundle is missing (TRAIN_ON_STARTUP=always forces it): a restart, or a --reload after
     a code edit, must not refit the models and start a new model_version mid forward test."""
     steps = []
-    if missed_pregame_log() and not models_missing():
-        # first, before games start: today's predictions from the data already stored
-        steps.append(("pregame odds (catch-up)", pregame_odds_pipeline))
+    if not models_missing():
+        # first, before they start: the games the pre-game log polls would miss while this refresh holds the lock
+        try:
+            due = await games_due_for_pregame_log(STARTUP_LOG_LEAD)
+        except Exception as e:
+            print(f"Startup: pre-game log check failed: {e!r}")
+            due = []
+        if due:
+            steps.append(("pregame log (catch-up)", lambda: pregame_log_pipeline(due)))
     steps += [
         ("teams", add_current_teams_to_db),
         ("old teams", add_old_teams_to_db),
@@ -77,7 +78,8 @@ async def lifespan(app: FastAPI):
         return
     # one ordered nightly job instead of independent 03:00/04:00 jobs that raced each other
     # run through the shared lock so the nightly run never overlaps a startup or manual refresh
-    scheduler.add_job(refresh.run_exclusive, args=["nightly", nightly_pipeline], trigger="cron", hour=3, max_instances=1, coalesce=True, misfire_grace_time=3600)
+    # midnight Pacific, after the last West Coast game has ended (07:00 UTC in summer time, 08:00 in winter)
+    scheduler.add_job(refresh.run_exclusive, args=["nightly", nightly_pipeline], trigger="cron", hour=0, timezone="America/Los_Angeles", max_instances=1, coalesce=True, misfire_grace_time=3600)
     # LIVE_SCORES_POLL_MINUTES (default 10); the job only calls the NHL API while a game is about to start or under way
     scheduler.add_job(fetch_current_scores, trigger="interval", minutes=live_poll_minutes(), max_instances=1, coalesce=True)
     # lineups and scratches as the NHL posts them before puck drop, and the lines used once a game ends; also only
@@ -87,10 +89,10 @@ async def lifespan(app: FastAPI):
     # (first run at startup, not 30 minutes in)
     scheduler.add_job(fetch_current_game_lines, trigger="interval", minutes=30, max_instances=1, coalesce=True,
                       next_run_time=datetime.datetime.now(datetime.timezone.utc))
-    # 21:00 UTC is mid/late afternoon in North America: player props are up, most games haven't started
-    # runs twice so a 21:00 run skipped by a busy lock still happens; the prediction log skips games already logged
-    scheduler.add_job(refresh.run_exclusive, args=["pregame odds", pregame_odds_pipeline], trigger="cron", hour="21,22", max_instances=1, coalesce=True, misfire_grace_time=3600)
-    # 15:00 UTC (late morning ET): an earlier point on the odds price path (ESPN, and PropLine's props)
+    # the forward test's prediction log, ~30 minutes before each game: starters, injuries and prices for the games
+    # about to start, then the log; no API call when no game is due
+    scheduler.add_job(log_games_about_to_start, trigger="interval", minutes=PREGAME_LOG_POLL_MINUTES, max_instances=1, coalesce=True)
+    # 15:00 UTC (late morning ET): starters, injuries and an earlier point on the odds price path (ESPN, and PropLine's props)
     scheduler.add_job(refresh.run_exclusive, args=["morning odds", morning_odds_pipeline], trigger="cron", hour=15, max_instances=1, coalesce=True, misfire_grace_time=3600)
     scheduler.start()
     refresh.start_in_background("startup", run_startup_refresh)
