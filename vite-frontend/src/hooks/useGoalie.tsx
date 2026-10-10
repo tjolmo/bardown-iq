@@ -1,35 +1,15 @@
-import { useState, useEffect } from "react";
-import { getGoalieSeasonStats, getGoalieRecentGames, getGoaliePredictions } from "../api/goalie";
-import { getPlayerBasicInfo, getPlayerProps, getPlayerUpcomingGame } from "../api/player";
+import { getGoalieLastGames, getGoaliePredictions, getGoalieSeasonGames } from "../api/goalie";
 import type { GoalieData } from "../types/goalie";
+import { loadPlayerBasics, usePlayerPage } from "./usePlayerPage";
 
-export function useGoalie(id: number) {
-  const [data, setData] = useState<GoalieData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+const loadGoalie = async (id: number): Promise<GoalieData> => {
+  const [basics, predictions, season, recent] = await Promise.all([
+    loadPlayerBasics(id),
+    getGoaliePredictions(id).catch(() => null),
+    getGoalieSeasonGames(id).catch(() => []),
+    getGoalieLastGames(id, 5).catch(() => []),
+  ]);
+  return { ...basics, predictions, season, recent };
+};
 
-  useEffect(() => {
-    Promise.all([
-      getPlayerBasicInfo(id),
-      getPlayerUpcomingGame(id).catch(() => null),
-      getGoalieSeasonStats(id).catch(() => null),
-      getGoalieRecentGames(id).catch(() => null),
-      getGoaliePredictions(id).catch(() => null),
-      getPlayerProps(id)
-    ])
-      .then(([playerInfo, upcomingGame, seasonStats, recentGames, gamePredictions, playerProps]) => {
-        setData({
-          ...playerInfo,
-          upcomingGame: upcomingGame!,
-          gamePredictions: gamePredictions!,
-          seasonStats: seasonStats!,
-          recentGames: recentGames!,
-          playerProps: playerProps,
-        });
-      })
-      .catch(setError)
-      .finally(() => setLoading(false));
-  }, [id]);
-
-  return { data, loading, error };
-}
+export const useGoalie = (id: number) => usePlayerPage(id, loadGoalie);

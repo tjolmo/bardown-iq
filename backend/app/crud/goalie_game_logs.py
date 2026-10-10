@@ -123,3 +123,14 @@ async def get_goalie_last_5_basic_stats_from_db(db: AsyncSession, player_id: int
             "home_away": stat[4]
         } for stat in last_5_stats]
     return None
+
+async def get_goalie_game_logs(db: AsyncSession, player_id: int, season: int | None = None,
+                               limit: int | None = None) -> list[GoalieGameLog]:
+    """A goalie's game logs, oldest first: one season's (`season`), or the latest `limit` across seasons."""
+    stmt = select(GoalieGameLog).where(GoalieGameLog.player_id == player_id)
+    if season is not None:
+        stmt = stmt.where(GoalieGameLog.season == season)
+    stmt = stmt.order_by(GoalieGameLog.game_date.desc())
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    return list(reversed((await db.execute(stmt)).scalars().all()))

@@ -1,35 +1,41 @@
-import type { PlayerData, PlayerPropData } from "./player";
+import type { PlayerData, PlayerPropData, UpcomingGame } from "./player";
+import type { TeamLookup } from "./teams";
 
+// the model's numbers for the next game, assuming the goalie starts it
 export interface GoalieGamePredictions {
   saves: number;
   goals_against: number;
+  shots_against?: number | null;
+  save_percentage?: number | null;
+  // whether the goalie is the team's expected starter, and how sure that is (confirmed / probable / projected)
+  starting?: boolean | null;
+  starter_status?: string | null;
 }
 
-export interface GoalieSeasonStats {
-  save_percentage: number;
-  gaa: number;
-  games: number;
-}
-
-export interface GoalieGameStats {
-  date: string;
+/** One game of a goalie's log (backend GoalieGameOut). */
+export interface GoalieGame {
+  game_id: number;
+  date: string;               // ISO date
   opposing_team_tricode: string;
+  home_away: "HOME" | "AWAY" | null;
+  toi: number;                // seconds
+  shots_against: number;      // shots on goal faced, goals included
   saves: number;
-  save_percentage: number;
   goals_against: number;
-  home_away: "HOME" | "AWAY";
+  x_goals_against: number;
+  high_danger_shots: number;
+  high_danger_x_goals: number;
+  rebounds: number;
+  x_rebounds: number;
+  // model stat (saves, sog, goals_against) -> what the model expected before puck drop
+  expected: Record<string, number>;
 }
 
 export interface GoalieData extends PlayerData {
-  gamePredictions: GoalieGamePredictions;
-  seasonStats: GoalieSeasonStats;
-  recentGames: GoalieGameStats[];
-  playerProps: PlayerPropData[];
+  upcomingGame: UpcomingGame | null;
+  predictions: GoalieGamePredictions | null;
+  season: GoalieGame[];
+  recent: GoalieGame[];
+  props: PlayerPropData[];
+  teams: TeamLookup;
 }
-
-export interface GoalieGameRowProps {
-  game_stats: GoalieGameStats;
-  index: number;
-}
-
-export type GoalieStatKey = "saves" | "goals_against" | "save_percentage";

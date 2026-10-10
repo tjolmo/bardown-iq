@@ -105,6 +105,50 @@ class GoalieLast5BasicStatsGetOut(BaseModel):
     save_percentage: float
     home_away: str
 
+class SkaterGameOut(BaseModel):
+    """One game of a skater's log for the player page: box score, shot quality, and what the model expected"""
+    game_id: int
+    date: str                   # ISO date of the game
+    opposing_team_tricode: str
+    home_away: str | None
+    toi: float                  # seconds
+    goals: int
+    primary_assists: int
+    secondary_assists: int
+    assists: int
+    points: int
+    # null on rows scraped before these columns existed
+    shots_on_goal: int | None
+    hits: int | None
+    blocked_shots: int | None
+    pp_points: int | None
+    pp_toi: float | None        # 5on4 seconds
+    x_goals: float
+    shot_attempts: int
+    high_danger_shots: int
+    on_ice_x_goals_percentage: float
+    game_score: float
+    # model stat -> the expected count the forward test logged before puck drop (empty when never logged)
+    expected: dict[str, float] = {}
+
+class GoalieGameOut(BaseModel):
+    """One game of a goalie's log for the player page"""
+    game_id: int
+    date: str                   # ISO date of the game
+    opposing_team_tricode: str
+    home_away: str | None
+    toi: float                  # seconds
+    shots_against: int          # shots on goal faced, goals included
+    saves: int
+    goals_against: int
+    x_goals_against: float
+    high_danger_shots: int
+    high_danger_x_goals: float
+    rebounds: int
+    x_rebounds: float
+    # model stat (goals_against, sog, saves) -> expected count logged before puck drop
+    expected: dict[str, float] = {}
+
 class GoalieSeasonBasicStatsGetOut(BaseModel):
     """Output model for a Goalie's season basic stats"""
     games: int
@@ -144,6 +188,7 @@ class GoaliePredictionOut(BaseModel):
     goals_against: float
     saves: float
     save_percentage: float | None = None
+    shots_against: float | None = None
     # the numbers above assume he starts; whether he is his team's expected starter, and how sure that is
     # ("confirmed", "probable" or "projected"; None when unknown)
     starting: bool | None = None
