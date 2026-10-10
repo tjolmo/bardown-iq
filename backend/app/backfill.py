@@ -80,11 +80,33 @@ async def backfill_actual_starters(min_season: int = 2008, max_season: int | Non
     logging.info("actual starters done: failed %s, incomplete %s, boxscore/pbp disagree %s",
                  totals["failed"][:50], totals["teams_missing"][:50], totals["disagree"][:50])
 
+async def backfill_game_lineups(min_season: int, max_season: int | None = None, chunk: int = 100, concurrency: int = 4):
+    """Lineups, scratches and shift-chart deployment (game_lineups, game_units) of every finished game of the
+    seasons that lacks ice time, including games whose shift chart was missing before. Commits per game, so an
+    interrupted run resumes where it stopped."""
+    from app.crud.lineups import get_games_missing_deployment
+    from app.schedules import record_game_lineups
+    async with AsyncSessionLocal() as db:
+        games = await get_games_missing_deployment(db, min_season, max_season, recheck_days=None)
+    logging.info("game lineups: %d games to fetch", len(games))
+    totals = {"posted": 0, "with_shifts": 0, "no_shifts": [], "not_posted": [], "failed": []}
+    for start in range(0, len(games), chunk):
+        stats = await record_game_lineups(games[start:start + chunk], concurrency=concurrency)
+        for k in totals:
+            totals[k] += stats[k]
+        logging.info("game lineups: %d/%d games, %d with ice time, %d without a shift chart, %d failed",
+                     start + stats["games"], len(games), totals["with_shifts"], len(totals["no_shifts"]),
+                     len(totals["failed"]))
+    await close_client()
+    logging.info("game lineups done: no shift chart %s, not posted %s, failed %s", totals["no_shifts"][:50],
+                 totals["not_posted"][:50], totals["failed"][:50])
+
 # usage: python -m app.backfill --seasons 2020 2021 2022 --games-seasons 2008 2009
 #        python -m app.backfill --odds 2019-04-01 2026-10-06 [--odds-cache DIR]
 #        python -m app.backfill --birth-dates
 #        python -m app.backfill --actual-starters [--starter-seasons 2008 2025] [--starters-log FILE]
 #        python -m app.backfill --props 2023-10-01 2026-10-07 [--odds-cache DIR]
+#        python -m app.backfill --lineups [--lineup-seasons 2026 2026]
 # upserts, so re-running a season is safe
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill MoneyPuck skater/goalie game logs and NHL schedules/scores")
@@ -97,6 +119,8 @@ if __name__ == "__main__":
     parser.add_argument("--actual-starters", action="store_true", help="store who actually started every finished game (NHL play-by-play / boxscore) in game_starters")
     parser.add_argument("--starter-seasons", type=int, nargs=2, metavar=("FIRST", "LAST"), default=[2008, None], help="season start years for --actual-starters (default 2008 onward)")
     parser.add_argument("--starters-log", help="append per-chunk --actual-starters counts as JSON lines to this file")
+    parser.add_argument("--lineups", action="store_true", help="store every finished game's lineups, scratches and shift-chart deployment (game_lineups, game_units)")
+    parser.add_argument("--lineup-seasons", type=int, nargs=2, metavar=("FIRST", "LAST"), default=None, help="season start years for --lineups (default: the current season)")
     parser.add_argument("--odds-cache", help="directory to cache raw ESPN JSON in (default: a temp dir)")
     args = parser.parse_args()
     if args.birth_dates:
@@ -106,6 +130,12 @@ if __name__ == "__main__":
     if args.actual_starters:
         logging.basicConfig(level=logging.INFO)
         asyncio.run(backfill_actual_starters(*args.starter_seasons, log_path=args.starters_log))
+        raise SystemExit(0)
+    if args.lineups:
+        from app.schedules import get_current_season_start_year
+        logging.basicConfig(level=logging.INFO)
+        first, last = args.lineup_seasons or (get_current_season_start_year(),) * 2
+        asyncio.run(backfill_game_lineups(first, last))
         raise SystemExit(0)
     if not args.seasons and not args.games_seasons and not args.team_stats_seasons and not args.odds and not args.props:
         parser.error("pass --seasons, --games-seasons, --team-stats-seasons, --odds and/or --props")

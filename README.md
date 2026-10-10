@@ -60,10 +60,11 @@ A code rebuild keeps the bundles in the volume, so `model_version` only changes 
 
 | When | Job | Steps |
 |---|---|---|
-| 03:00 | nightly | schedules, rosters, MoneyPuck player logs and team stats, skater shares, last night's actual starters, ESPN odds and prop odds, scoring of yesterday's logged predictions, PropLine props, training (per `TRAIN_SCHEDULE`) |
+| 03:00 | nightly | schedules, rosters, MoneyPuck player logs and team stats, skater shares, last night's actual starters, last night's lineups, scratches and shift-chart lines, ESPN odds and prop odds, scoring of yesterday's logged predictions, PropLine props, training (per `TRAIN_SCHEDULE`) |
 | 15:00 | morning | injury report, ESPN odds and prop odds, PropLine props, edge board |
 | 21:00 and 22:00 | pregame | starting goalies, injury report, ESPN odds and prop odds, PropLine props, **prediction log**, edge board |
 | every 10 min (`LIVE_SCORES_POLL_MINUTES`) | live scores | only while a game is about to start or under way |
+| every 10 min (`LIVE_SCORES_POLL_MINUTES`) | game-day lineups | dressed players and scratches of games starting within 90 minutes (the NHL posts them shortly before puck drop), and the lines of games that ended in the last 12 hours; no NHL call otherwise |
 | every 30 min | game lines | one bulk PropLine request for the site's moneylines |
 
 A container that starts between 21:00 and 06:00 UTC runs the pregame pipeline first, so a late start still logs
@@ -109,6 +110,7 @@ docker compose exec backend python -m app.backfill --seasons 2026
 | `python -m app.backfill --props 2024-02-01 2026-10-08 [--odds-cache DIR]` | `player_prop_odds` (ESPN player props) | Run after games, players and logs exist |
 | `python -m app.backfill --birth-dates` | `players.birth_date` from the NHL API | For the aging curve |
 | `python -m app.backfill --actual-starters [--starter-seasons 2008 2026] [--starters-log FILE]` | `game_starters` (source `nhl`): who started every finished game, from play-by-play with the boxscore flag as fallback | Resumable; about 75 minutes for everything |
+| `python -m app.backfill --lineups [--lineup-seasons 2025 2026]` | `game_lineups`, `game_units`: who dressed, who was scratched, ice time by strength and the units that played together, from NHL shift charts | Default: the current season. About 3 requests per game; also retries games whose shift chart was missing |
 | `python -m predictions.shares refresh [--all]` | `skater_game_shares` | About a minute for everything; `--all` after re-scraping an old season |
 | `python -m predictions.train` | Retrains the three model bundles | About 30 minutes, ~4.3 GB peak memory |
 
@@ -142,6 +144,27 @@ docker compose exec forward python -m predictions.prediction_log report
 
 Model experiments and their results, version by version, are in `backend/predictions/experiments/RESULTS*.md`.
 
+## Lines, injuries and scratches
+
+`GET /teams/{tri_code}/lineup` serves the roster page: the team's next game, its forward lines, defense pairs,
+power-play and penalty-kill units and goalies, plus ESPN's injury report and the NHL's scratches (a scratch the
+injury report doesn't list is a healthy scratch).
+
+The NHL publishes no line combinations, so they are rebuilt from its shift charts: `app/deployment.py` walks each
+finished game second by second and stores how long every forward trio and defense pair played together at 5 on 5,
+and every power-play and penalty-kill group (`game_units`). When the shift chart is empty (16 of the first 69 games
+of 2026-27), the NHL's HTML time-on-ice reports give the same shifts. `app/line_projection.py` projects the next game
+from the last six games, each weighing half the one after it: the last lineup minus anyone traded, sent down or
+listed out by ESPN, the lines that best match who played together, and special-teams units grown from who shared
+the most power-play and penalty-kill time. Once the NHL posts the game's lineup (shortly before puck drop) the
+dressed players are confirmed and only the lines are projected.
+
+How well the lines hold up from one game to the next, against simply copying the last game's:
+
+```bash
+docker compose exec backend python -m predictions.experiments.line_projection_eval --season 2025
+```
+
 ## Tests
 
 The suite uses an in-memory SQLite engine and needs `pytest` and `aiosqlite`, which aren't in the image:
@@ -155,7 +178,8 @@ docker compose exec backend sh -c "pip install -q pytest aiosqlite && python -m 
 This project relies on data provided by **MoneyPuck**, the **NHL**, **ESPN** and **PropLine**.
 
 - [MoneyPuck](https://moneypuck.com): player and team game-by-game data, the core of the models.
-- [NHL API](https://www.nhl.com/): teams, rosters, schedules, scores, play-by-play.
+- [NHL API](https://www.nhl.com/): teams, rosters, schedules, scores, play-by-play, lineups, scratches and shift charts
+  (with the NHL's HTML time-on-ice reports as the fallback).
 - ESPN: closing odds, player prop history, injury report, probable starting goalies.
 - [PropLine](https://prop-line.com): live player props and game lines from every book.
 

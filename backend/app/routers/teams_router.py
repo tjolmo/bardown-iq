@@ -7,7 +7,8 @@ from predictions.predict import get_upcoming_game_prediction
 from app.crud.teams import search_teams_by_name
 from app.schedules import current_game_day
 from fastapi import Query
-from app.schemas.teams import TeamSearchResultOut
+from app.schemas.teams import TeamSearchResultOut, TeamLineupOut
+from app.team_lineup import build_team_lineup
 import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from app.dependencies import get_db
@@ -201,6 +202,14 @@ async def get_team_current_roster_endpoint(tri_code: str, db = Depends(get_db)):
                     shoots_catches=player.shoots_catches if player.shoots_catches else "U"
                 ) for player in roster]
     raise HTTPException(status_code=404, detail=f"Roster for Team {tri_code} not found in DB")
+
+@router.get("/{tri_code}/lineup", status_code=200, response_model=TeamLineupOut)
+async def get_team_lineup(tri_code: str, db = Depends(get_db)):
+    """The next game's lines (posted by the NHL shortly before puck drop, else projected from recent shift charts),
+    goalies, ESPN's injury report and the NHL's scratches for one team."""
+    if not await check_tri_code_exists(db, tri_code.upper()):
+        raise HTTPException(status_code=404, detail=f"Team {tri_code} not found in DB")
+    return await build_team_lineup(db, tri_code)
 
 @router.get("/all", status_code=200, response_model=list[TeamBasicInfoOut])
 async def get_all_teams_basic_info(db = Depends(get_db)):

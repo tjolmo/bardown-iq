@@ -550,6 +550,79 @@ async def fetch_recent_actual_starters(max_games: int = 400) -> int:
           f"failed {stats['failed'][:10]}, incomplete {stats['teams_missing'][:10]}, boxscore/pbp disagree {stats['disagree'][:10]}")
     return stored
 
+async def record_game_lineups(games: list, with_shifts: bool = True, concurrency: int = 4) -> dict:
+    """Fetches and stores each game's lineups (game_lineups): dressed players and scratches as soon as the NHL posts
+    them, plus, for finished games whose shift chart covers the game, every player's ice time by strength and the
+    units that played together (game_units, see app/deployment.py). Returns counts."""
+    from external.nhl.lineups import fetch_game_lineup_data
+    from .crud.lineups import store_game_lineup
+    from .deployment import game_deployment, shifts_cover_game
+    datas = await gather_bounded([fetch_game_lineup_data(g.id, g.home_team_tri_code, g.away_team_tri_code, with_shifts)
+                                  for g in games], limit=concurrency)
+    stats = {"games": len(games), "posted": 0, "with_shifts": 0, "not_posted": [], "no_shifts": [], "failed": []}
+    async with AsyncSessionLocal() as db:
+        for game, data in zip(games, datas):
+            if data.roster_spots is None:
+                stats["failed"].append(game.id)
+                continue
+            if not data.roster_spots:
+                stats["not_posted"].append(game.id)
+                continue
+            teams = (game.home_team_tri_code, game.away_team_tri_code)
+            deployments = None
+            if (game.game_state in FINISHED_GAME_STATES and data.shifts
+                    and shifts_cover_game(data.shifts, teams, data.last_period)):
+                positions = {s.player_id: s.position for s in data.roster_spots}
+                deployments = game_deployment(data.shifts, positions, teams)
+            elif with_shifts and game.game_state in FINISHED_GAME_STATES:
+                stats["no_shifts"].append(game.id)
+            try:
+                await store_game_lineup(db, data, deployments)
+            except Exception as e:
+                await db.rollback()
+                print(f"Failed to store lineups for game {game.id}: {e!r}")
+                stats["failed"].append(game.id)
+                continue
+            stats["posted"] += 1
+            stats["with_shifts"] += deployments is not None
+    return stats
+
+async def fetch_recent_game_lineups(max_games: int = 400, started_after: datetime.datetime | None = None,
+                                    fetched_before: datetime.datetime | None = None) -> int:
+    """Lineups, scratches and shift-chart deployment of this season's finished games that don't have them yet
+    (normally the last night's games; missed nights are caught up). Returns games stored with ice time."""
+    from .crud.lineups import get_games_missing_deployment
+    async with AsyncSessionLocal() as db:
+        games = await get_games_missing_deployment(db, min_season=get_current_season_start_year(),
+                                                   started_after=started_after, fetched_before=fetched_before,
+                                                   limit=max_games)
+    if not games:
+        return 0
+    stats = await record_game_lineups(games)
+    print(f"Game lineups: {stats['with_shifts']}/{stats['games']} finished games with ice time; no shift chart yet "
+          f"{stats['no_shifts'][:10]}, not posted {stats['not_posted'][:10]}, failed {stats['failed'][:10]}")
+    return stats["with_shifts"]
+
+async def fetch_game_day_lineups():
+    """Runs with the live scores: the lineups and scratches of games about to start (the NHL posts them shortly
+    before puck drop), and the ice time of games that just ended, so the roster page follows the night's games
+    instead of waiting for the nightly run. Only calls the NHL API around games, and waits out a running pipeline
+    (the nightly run stores the same games)."""
+    from . import refresh
+    from .crud.lineups import get_games_awaiting_lineups
+    if refresh.is_running():
+        return
+    async with AsyncSessionLocal() as db:
+        upcoming = await get_games_awaiting_lineups(db)
+    if upcoming:
+        stats = await record_game_lineups(upcoming, with_shifts=False)
+        if stats["posted"]:
+            print(f"Game lineups: posted for {stats['posted']}/{stats['games']} upcoming games")
+    # a finished game whose shift chart isn't complete yet is tried again every half hour, not every poll
+    now = datetime.datetime.now(datetime.timezone.utc)
+    await fetch_recent_game_lineups(max_games=40, started_after=now - datetime.timedelta(hours=12),
+                                    fetched_before=now - datetime.timedelta(minutes=30))
+
 async def pregame_odds_pipeline():
     """Game lines and player props for today's games. ESPN posts player props only on game day, so the
     3am nightly run misses pre-game prices; this runs in the late afternoon (North American time).
@@ -611,6 +684,8 @@ async def nightly_pipeline():
         print("Skipping training: player log scrape failed")
     # who actually started last night's games (training labels the goalie model's rows and the starter features with these)
     await run_step("actual starters", fetch_recent_actual_starters)
+    # who dressed, who sat and the lines each team used (the roster page's projected lines)
+    await run_step("game lineups", fetch_recent_game_lineups)
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("player prop odds", fetch_recent_player_prop_odds)
     # after the fetches above captured last night's closing prices and the logs scrape brought the box scores
@@ -635,6 +710,7 @@ async def full_refresh():
         print("Skipping training: player log scrape failed")
     await run_step("scores", fetch_current_scores)
     await run_step("actual starters", fetch_recent_actual_starters)
+    await run_step("game lineups", fetch_recent_game_lineups)
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("props", fetch_current_player_props)
     if logs_ok:

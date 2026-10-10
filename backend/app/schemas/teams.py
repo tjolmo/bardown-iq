@@ -92,3 +92,79 @@ class TeamMoneylineOut(BaseModel):
     best_away_book: str | None = None
     n_books: int | None = None
     source: str = "propline"
+
+class LineupPlayerOut(BaseModel):
+    """A player as the lineup endpoint shows him. `slot`: LW / C / RW, LD / RD, F / D (special teams), G."""
+    id: int
+    firstName: str | None = None
+    lastName: str | None = None
+    number: int | None = None
+    position: str | None = None
+    shoots: str | None = None
+    headshot: str | None = None
+    slot: str | None = None
+    injuryStatus: str | None = None   # day_to_day players can be in the lineup; out / ir / ltir / suspended can't
+    gamesScratched: int | None = None  # players coming into the lineup: straight games scratched before it
+
+class LineupUnitOut(BaseModel):
+    """A projected line (F1-F4), defense pair (D1-D3), power-play (PP1-PP2) or penalty-kill (PK1-PK2) unit."""
+    name: str
+    players: list[LineupPlayerOut]
+    secondsLastGame: int          # seconds this exact group played together last game (5 on 5 for lines and pairs)
+    gamesTogether: int            # of the games the projection weighs, how many it played together (a minute or more)
+
+class LineupGoalieOut(BaseModel):
+    role: str                     # starter / backup
+    status: str                   # confirmed / probable (ESPN) / actual (NHL, once the game has started) / projected
+    player: LineupPlayerOut
+
+class LineupGameOut(BaseModel):
+    id: int
+    startTime: datetime.datetime
+    venue: str | None = None
+    opponent: str
+    home: bool
+    gameState: str
+
+class LineupChangesOut(BaseModel):
+    """Who is in and out against the team's last lineup."""
+    playersIn: list[LineupPlayerOut]
+    playersOut: list[LineupPlayerOut]
+
+class TeamInjuryOut(BaseModel):
+    """One player on ESPN's injury report (playerId None when he couldn't be matched to an NHL id)."""
+    playerId: int | None
+    name: str | None
+    position: str | None
+    status: str                   # out / ir / ltir / suspended / day_to_day
+    injuryType: str | None
+    returnDate: datetime.date | None
+    comment: str | None
+    reportedAt: datetime.datetime | None
+    player: LineupPlayerOut | None = None
+
+class TeamScratchOut(BaseModel):
+    """A player the NHL listed as scratched. healthy: not on the injury report."""
+    player: LineupPlayerOut
+    healthy: bool
+    gamesScratched: int           # consecutive games scratched, up to the one in gameId
+    gameId: int
+
+class TeamLineupOut(BaseModel):
+    """The roster page's lineup: the next game's lines (posted by the NHL shortly before puck drop, else projected
+    from the shift charts of recent games), goalies, injuries and scratches."""
+    team: str
+    game: LineupGameOut | None
+    status: str                   # confirmed (the NHL posted the lineup) / projected
+    basedOn: list[int]            # game ids the lines were projected from, newest first
+    forwards: list[LineupUnitOut]
+    defense: list[LineupUnitOut]
+    powerPlay: list[LineupUnitOut]
+    penaltyKill: list[LineupUnitOut]
+    goalies: list[LineupGoalieOut]
+    extras: list[LineupPlayerOut]
+    changes: LineupChangesOut
+    injuries: list[TeamInjuryOut]
+    scratches: list[TeamScratchOut]
+    injuryReportAsOf: datetime.datetime | None
+    lineupsUpdatedAt: datetime.datetime | None

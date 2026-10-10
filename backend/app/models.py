@@ -503,3 +503,41 @@ class SkaterGameShare(Base):
     sog_share: Mapped[float | None] = mapped_column(nullable=True)
     xg_share: Mapped[float | None] = mapped_column(nullable=True)
     computed_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class GameLineup(Base):
+    """Who dressed for each team in a game and who it scratched (NHL play-by-play rosterSpots and right-rail
+    scratches), with each dressed player's ice time by strength once the shift chart is in (app/deployment.py).
+    Stored when lineups are posted before puck drop and again, with ice time, once the game is over. The NHL scratch
+    list includes injured players; a healthy scratch is one the injury report doesn't list. Names and numbers are
+    kept here because a same-day call-up may not be in players yet (no FK on player_id)."""
+    __tablename__ = "game_lineups"
+    __table_args__ = (Index("ix_game_lineups_team_game", "team", "game_id"),)
+    game_id: Mapped[int] = mapped_column(primary_key=True)
+    team: Mapped[str] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(nullable=False)            # "dressed" / "scratched"
+    position: Mapped[str | None] = mapped_column(nullable=True)    # C / L / R / D / G (dressed players)
+    sweater_number: Mapped[int | None] = mapped_column(nullable=True)
+    first_name: Mapped[str | None] = mapped_column(nullable=True)
+    last_name: Mapped[str | None] = mapped_column(nullable=True)
+    # seconds; NULL until the shift chart is in (ev = 5 on 5, pp / pk = power play / penalty kill)
+    toi: Mapped[int | None] = mapped_column(nullable=True)
+    toi_ev: Mapped[int | None] = mapped_column(nullable=True)
+    toi_pp: Mapped[int | None] = mapped_column(nullable=True)
+    toi_pk: Mapped[int | None] = mapped_column(nullable=True)
+    faceoffs: Mapped[int | None] = mapped_column(nullable=True)    # taken, won or lost
+    fetched_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class GameUnit(Base):
+    """Seconds each group of teammates spent on the ice together in a game, from the shift chart: forward trios
+    (ev_f) and defense pairs (ev_d) at 5 on 5, power-play (pp) and penalty-kill (pk) groups. `unit` is the sorted
+    player ids joined with "-". Line projections (app/line_projection.py) are built from these."""
+    __tablename__ = "game_units"
+    __table_args__ = (Index("ix_game_units_team_game", "team", "game_id"),)
+    game_id: Mapped[int] = mapped_column(primary_key=True)
+    team: Mapped[str] = mapped_column(primary_key=True)
+    situation: Mapped[str] = mapped_column(primary_key=True)
+    unit: Mapped[str] = mapped_column(primary_key=True)
+    seconds: Mapped[int] = mapped_column(nullable=False)

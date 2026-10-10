@@ -12,7 +12,7 @@ from .database import AsyncSessionLocal
 from .schedules import (add_current_teams_to_db, add_old_teams_to_db, fetch_current_rosters_for_all_teams, 
                         fetch_current_schedules_for_all_teams, scrape_all_player_logs, scrape_team_stats,
                         fetch_current_scores, fetch_current_game_lines, nightly_pipeline, pregame_odds_pipeline,
-                        morning_odds_pipeline)
+                        morning_odds_pipeline, fetch_game_day_lineups)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from external.nhl.games import live_poll_minutes
 
@@ -80,6 +80,9 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh.run_exclusive, args=["nightly", nightly_pipeline], trigger="cron", hour=3, max_instances=1, coalesce=True, misfire_grace_time=3600)
     # LIVE_SCORES_POLL_MINUTES (default 10); the job only calls the NHL API while a game is about to start or under way
     scheduler.add_job(fetch_current_scores, trigger="interval", minutes=live_poll_minutes(), max_instances=1, coalesce=True)
+    # lineups and scratches as the NHL posts them before puck drop, and the lines used once a game ends; also only
+    # calls the NHL API around games
+    scheduler.add_job(fetch_game_day_lineups, trigger="interval", minutes=live_poll_minutes(), max_instances=1, coalesce=True)
     # the site's live moneylines: one bulk PropLine request (48 of the free tier's 1,000 a day)
     # (first run at startup, not 30 minutes in)
     scheduler.add_job(fetch_current_game_lines, trigger="interval", minutes=30, max_instances=1, coalesce=True,

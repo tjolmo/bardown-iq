@@ -27,6 +27,17 @@ async def insert_injury_snapshot(db: AsyncSession, rows: list[dict], fetched_at:
     return len(values)
 
 
+async def get_recently_listed_out(db: AsyncSession, player_ids: list[int], statuses: set[str],
+                                  since: datetime.datetime) -> set[int]:
+    """Players among `player_ids` that an injury snapshot fetched since `since` listed with one of `statuses`."""
+    if not player_ids:
+        return set()
+    stmt = select(PlayerInjury.player_id).where(PlayerInjury.player_id.in_(player_ids),
+                                                PlayerInjury.status.in_(statuses),
+                                                PlayerInjury.fetched_at >= since).distinct()
+    return set((await db.execute(stmt)).scalars().all())
+
+
 async def load_injury_report(db: AsyncSession, as_of: datetime.datetime | None = None,
                              max_age: datetime.timedelta = MAX_REPORT_AGE) -> pd.DataFrame | None:
     """The latest injury snapshot fetched at or before `as_of` (default now), as a DataFrame with fetched_at plus

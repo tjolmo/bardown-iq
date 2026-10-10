@@ -29,21 +29,9 @@ export interface PlayerFullData {
 
 export type Position = "C" | "L" | "R" | "D" | "G" | "U";
 
-export interface PositionGroupConfig {
-    key: Position;
-    label: string;
-    plural: string;
-}
-
 export interface PlayerCardProps {
     player: PlayerFullData;
     index: number;
-}
-
-export interface PositionGroupProps {
-    label: string;
-    players: PlayerFullData[];
-    startIndex: number;
 }
 
 export interface SearchPlayerResult {

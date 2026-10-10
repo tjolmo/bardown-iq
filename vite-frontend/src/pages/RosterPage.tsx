@@ -1,111 +1,195 @@
-import { useParams, Link } from "react-router-dom";
 import type { FC } from "react";
-import type { PlayerFullData, Position, PositionGroupConfig } from "../types/player";
-import { PositionGroup } from "../components/roster/PositionGroup";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { RinkHero } from "../components/rinkboard/RinkHero";
+import { LinesBoard } from "../components/roster/LinesBoard";
+import { LineupChanges } from "../components/roster/LineupChanges";
+import { OutOfLineup } from "../components/roster/OutOfLineup";
+import { RosterTable } from "../components/roster/RosterTable";
 import { useRoster } from "../hooks/useRoster";
-import LoadingPage from "./LoadingPage";
-import ErrorPage from "./ErrorPage";
+import type { LineupGame, TeamLineup } from "../types/lineup";
+import type { TeamLookup } from "../types/teams";
+import { daysBetween, localTime, shortDay, splitTeamName } from "../utils/gameStatus";
+import { tonightRoles } from "../utils/lineup";
+import { teamOf } from "../utils/playerStats";
 
-const POSITION_GROUPS: PositionGroupConfig[] = [
-  { key: "C", label: "Center", plural: "Centers" },
-  { key: "L", label: "Left Wing", plural: "Left Wings" },
-  { key: "R", label: "Right Wing", plural: "Right Wings" },
-  { key: "D", label: "Defenseman", plural: "Defensemen" },
-  { key: "G", label: "Goalie", plural: "Goalies" },
-  { key: "U", label: "Unknown", plural: "Unknown" },
-];
+type View = "lines" | "roster";
 
-export const RosterPage: FC = () => {
-  const { tricode } = useParams<{ tricode: string }>();
-  const { data: players, loading, error } = useRoster(tricode!);
-  if (loading) { return <LoadingPage />; }
-  if (error) { return <ErrorPage message="Error loading roster data." />; }
+const STARTED = new Set(["LIVE", "CRIT", "FINAL", "OFF"]);
 
-  const grouped = POSITION_GROUPS.reduce<Record<Position, PlayerFullData[]>>(
-    (acc, group) => {
-      acc[group.key] = players
-        ? players.filter((p) => p.position === group.key)
-        : [];
-      return acc;
-    },
-    { C: [], L: [], R: [], D: [], G: [], U: [] }
+/** "Tonight", "Tomorrow" or "SAT · OCT 10", in the visitor's time zone. */
+const gameDay = (iso: string): string => {
+  const days = daysBetween(new Date().toISOString(), iso);
+  return days === 0 ? "Tonight" : days === 1 ? "Tomorrow" : shortDay(iso);
+};
+
+const linesHeading = (game: LineupGame | null): string => {
+  if (!game) return "Last lineup";
+  const day = gameDay(game.startTime);
+  return day === "Tonight" ? "Tonight's lines" : day === "Tomorrow" ? "Tomorrow's lines" : `Lines · ${day}`;
+};
+
+const statusNote = (lineup: TeamLineup): string => {
+  const games = lineup.basedOn.length;
+  const from = `the last ${games === 1 ? "game's" : `${games} games'`} NHL shift charts`;
+  if (lineup.status === "projected") {
+    return `Projected from ${from}${lineup.injuryReportAsOf ? " and ESPN's injury report" : ""}. ` +
+      "The NHL posts the lineup about an hour before puck drop.";
+  }
+  if (lineup.game && STARTED.has(lineup.game.gameState)) {
+    return `The dressed players are the NHL's. Lines are projected from ${from} until this game's chart is in.`;
+  }
+  return `The NHL has posted the dressed players. Lines stay projected from ${from} until puck drop.`;
+};
+
+const NextGame: FC<{ game: LineupGame | null; teams: TeamLookup; tricode: string }> = ({ game, teams, tricode }) => {
+  const schedule = (
+    <Link to={`/schedule/team/${tricode}`} className="bd-btn" style={{ marginTop: 6 }}>
+      Schedule
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+        <path d="M9 5l7 7-7 7" />
+      </svg>
+    </Link>
   );
+  if (!game) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+        <span className="bd-label">Next game</span>
+        <span className="bd-muted" style={{ fontWeight: 600 }}>None scheduled</span>
+        {schedule}
+      </div>
+    );
+  }
+  const opp = teamOf(teams, game.opponent);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+      <span className="bd-label">Next game</span>
+      <div className="rs-hero-next">
+        <span className="bd-display-xl">{game.home ? "Vs" : "At"} {splitTeamName(opp.name).city || opp.tricode}</span>
+        <img src={opp.logoUrl} alt={opp.name} />
+      </div>
+      <span className="bd-muted" style={{ fontWeight: 600 }}>
+        {[gameDay(game.startTime), localTime(game.startTime), game.venue].filter(Boolean).join(" · ")}
+      </span>
+      {schedule}
+    </div>
+  );
+};
 
-  let cardIndex = 0;
+/** A team's page: the next game's lines (projected from shift charts, or posted by the NHL), who's out, and the
+ *  whole roster on its own tab. */
+export const RosterPage: FC = () => {
+  const { tricode: param } = useParams<{ tricode: string }>();
+  const tricode = param!.toUpperCase();
+  const [params, setParams] = useSearchParams();
+  const view: View = params.get("view") === "roster" ? "roster" : "lines";
+  const { roster, lineup, teams, loading, lineupLoading, error, lineupError } = useRoster(tricode);
 
-  const totalPlayers = players?.length ?? 0;
-  const totalSkaters = players?.filter((p) => p.position !== "G" && p.position !== "U").length ?? 0;
-  const totalGoalies = players?.filter((p) => p.position === "G").length ?? 0;
-  const totalUnknown = players?.filter((p) => p.position === "U").length ?? 0;
+  const lookup: TeamLookup = Object.fromEntries((teams ?? []).map((t) => [t.tricode, t]));
+  const team = teamOf(lookup, tricode);
+  const { city, nickname } = teams ? splitTeamName(team.name) : { city: "", nickname: tricode };
+  const setView = (v: View) => setParams(v === "lines" ? {} : { view: v }, { replace: true });
+  const hasLines = !!lineup && lineup.forwards.length > 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-100 font-sans p-4 sm:p-6 lg:p-10">
-      <div className="fixed top-0 right-0 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="fixed bottom-0 left-0 w-64 h-64 bg-indigo-400/10 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="relative max-w-5xl mx-auto space-y-6">
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/60 overflow-hidden">
-          <div className="h-20 bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 relative">
-            <div
-              className="absolute inset-0 opacity-20"
-              style={{
-                backgroundImage:
-                  "repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,.15) 10px, rgba(255,255,255,.15) 11px)",
-              }}
-            />
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <h1 className="text-white font-black text-2xl tracking-tight drop-shadow">
-                Team Roster
-              </h1>
-              {tricode && (
-                <p className="text-blue-200 text-xs font-semibold mt-0.5 tracking-widest uppercase">
-                  {tricode}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-5 divide-x divide-slate-100 bg-slate-50 rounded-b-3xl">
-            {[
-              { label: "Players", value: totalPlayers },
-              { label: "Skaters", value: totalSkaters },
-              { label: "Goalies", value: totalGoalies },
-              { label: "Unknown", value: totalUnknown },
-            ].map((s) => (
-              <div key={s.label} className="py-3 text-center">
-                <p className="text-lg font-black text-slate-800">{s.value}</p>
-                <p className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
-                  {s.label}
-                </p>
+    <div className="bd-page">
+      <main className="bd-main">
+        <RinkHero
+          labelledBy="team-title"
+          left={
+            <>
+              <div className="bd-row" style={{ gap: 8 }}>
+                <Link to="/teams" className="bd-icon-btn" aria-label="All teams">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+                    <path d="M15 5l-7 7 7 7" />
+                  </svg>
+                </Link>
+                <span className="bd-muted" style={{ fontWeight: 700 }}>Roster{city && ` · ${city}`}</span>
               </div>
-            ))}
-            <Link
-              to={`/schedule/team/${tricode}`}
-              className="py-3 text-center flex flex-col items-center justify-center hover:bg-blue-50 transition-colors group"
-            >
-              <p className="text-lg font-black text-blue-600 group-hover:text-blue-700">→</p>
-              <p className="text-[10px] font-semibold tracking-wider text-blue-500 uppercase">
-                Schedule
-              </p>
-            </Link>
+              <div className="bd-row" style={{ gap: 16 }}>
+                <img className="bd-team-logo" src={team.logoUrl} alt={team.name} />
+                <h1 id="team-title" className="bd-display-xl">
+                  {nickname.split(" ").map((word, i) => (
+                    <span key={i}>
+                      {i > 0 && <br />}
+                      {word}
+                    </span>
+                  ))}
+                </h1>
+              </div>
+            </>
+          }
+          right={lineup ? <NextGame game={lineup.game} teams={lookup} tricode={tricode} /> : (
+            <Link to={`/schedule/team/${tricode}`} className="bd-btn">Schedule</Link>
+          )}
+        />
+
+        <div className="rs-tabs">
+          <div className="rs-seg" role="group" aria-label="View">
+            <button type="button" aria-pressed={view === "lines"} onClick={() => setView("lines")}>Lines</button>
+            <button type="button" aria-pressed={view === "roster"} onClick={() => setView("roster")}>
+              Roster {roster && <span className="rs-seg-count">{roster.length}</span>}
+            </button>
           </div>
+          <span className="rs-note" style={{ fontWeight: 600 }}>Lines rebuilt from NHL shift charts after every game</span>
         </div>
-        <div className="space-y-6">
-          {POSITION_GROUPS.map((group) => {
-            const groupPlayers = grouped[group.key];
-            const start = cardIndex;
-            cardIndex += groupPlayers.length;
-            return (
-              <PositionGroup
-                key={group.key}
-                label={group.plural}
-                players={groupPlayers}
-                startIndex={start}
-              />
-            );
-          })}
-        </div>
-      </div>
+
+        {view === "lines" && (
+          lineupLoading ? (
+            <p className="bd-empty" role="status">Drawing up the lines</p>
+          ) : lineupError || !lineup ? (
+            <p className="bd-empty" role="alert">The lines didn't load. Check that the API is up, then refresh the page.</p>
+          ) : (
+            <>
+              <section className="bd-section" aria-labelledby="lines-heading">
+                <div className="bd-section-head">
+                  <div className="bd-row" style={{ gap: 16 }}>
+                    <h2 id="lines-heading" className="bd-heading">{linesHeading(lineup.game)}</h2>
+                    {hasLines && (
+                      <span className={`bd-chip ${lineup.status === "confirmed" ? "bd-chip-final" : "bd-chip-time"}`}>
+                        {lineup.status === "confirmed" ? "LINEUP POSTED" : "PROJECTED"}
+                      </span>
+                    )}
+                  </div>
+                  {hasLines && <span className="rs-note">{statusNote(lineup)}</span>}
+                </div>
+                {hasLines ? (
+                  <>
+                    <LineupChanges lineup={lineup} />
+                    <LinesBoard lineup={lineup} />
+                  </>
+                ) : (
+                  <p className="bd-empty">
+                    No lines yet. They're rebuilt from the NHL's shift charts once the team has played a game.
+                  </p>
+                )}
+              </section>
+
+              <section className="bd-section" aria-labelledby="out-heading">
+                <div className="bd-section-head">
+                  <h2 id="out-heading" className="bd-heading">Out of the lineup</h2>
+                  <span className="rs-note">
+                    {lineup.injuryReportAsOf
+                      ? `Injury report from ESPN, as of ${localTime(lineup.injuryReportAsOf)}. `
+                      : "No recent injury report from ESPN. "}
+                    Scratches from the NHL's game sheet.
+                  </span>
+                </div>
+                <OutOfLineup lineup={lineup} posted={lineup.status === "confirmed"} />
+              </section>
+            </>
+          )
+        )}
+
+        {view === "roster" && (
+          loading ? (
+            <p className="bd-empty" role="status">Loading the roster</p>
+          ) : error || !roster ? (
+            <p className="bd-empty" role="alert">The roster didn't load. Check that the API is up, then refresh the page.</p>
+          ) : (
+            <RosterTable players={roster} roles={hasLines ? tonightRoles(lineup!) : null} />
+          )
+        )}
+      </main>
     </div>
   );
 };
