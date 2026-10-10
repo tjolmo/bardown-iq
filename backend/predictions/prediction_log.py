@@ -3,7 +3,7 @@
 RESULTS_v3.md / RESULTS_props_v2.md conclude that backtests can't show an edge against the close; the honest test is
 a frozen model run forward, tracked with closing-line value. This module is that loop:
 
-* `log_predictions` (afternoon pipeline): for every game today that hasn't started, the team win probability and
+* `log_predictions` (pre-game log, ~30 minutes before each puck drop): for every game today that hasn't started, the team win probability and
   every player's expected counts (skater and goalie bundles), with the latest pre-game market snapshot
   (app.crud.odds_snapshots). A player stat takes ESPN's line when ESPN has a two-sided one, else the consensus
   across PropLine's books (prop_quotes; the Odds API before Oct 2026), and records which (`market_source`). Insert-only; a
@@ -315,13 +315,23 @@ def nhl_today(now: datetime.datetime) -> int:
 
 
 async def _already_logged(db: AsyncSession, game_id: int, version: str, run_id: str) -> bool:
-    """One frozen log per game per model version: a retry (e.g. the 22:00 run) or a later run of the same
-    model skips games already logged, whatever hour they were logged in (run_id is kept for the record)."""
+    """One frozen log per game per model version: a retry or a later run of the same model skips games already
+    logged, whatever hour they were logged in (run_id is kept for the record)."""
     for model in (PredictionLog, PlayerPredictionLog):
         hit = await db.execute(select(model.id).where(model.game_id == game_id, model.model_version == version).limit(1))
         if hit.first():
             return True
     return False
+
+
+async def unlogged_game_ids(db: AsyncSession, game_ids: list[int]) -> list[int]:
+    """The games in `game_ids` the current model version hasn't logged yet (as _already_logged)."""
+    version = model_version()
+    logged = set()
+    for model in (PredictionLog, PlayerPredictionLog):
+        result = await db.execute(select(model.game_id).where(model.game_id.in_(game_ids), model.model_version == version))
+        logged.update(result.scalars())
+    return [g for g in game_ids if g not in logged]
 
 
 async def _roster(db: AsyncSession, teams: list[str]) -> list[tuple[int, str, str]]:
@@ -331,8 +341,10 @@ async def _roster(db: AsyncSession, teams: list[str]) -> list[tuple[int, str, st
 
 
 async def log_predictions(db: AsyncSession, game_date: int | None = None, now: datetime.datetime | None = None,
-                          run_id: str | None = None, include_started: bool = False, players: bool = True) -> dict:
-    """Logs predictions for `game_date`'s games (default: today's NHL date) that haven't started yet.
+                          run_id: str | None = None, include_started: bool = False, players: bool = True,
+                          game_ids: list[int] | None = None) -> dict:
+    """Logs predictions for `game_date`'s games (default: today's NHL date) that haven't started yet, or only
+    `game_ids` among them (the pre-game log of the games about to start).
     run_id defaults to the UTC hour, so a retried run in the same hour fills in only the games it missed."""
     from . import predict as P
     now = as_utc(now) or _now()
@@ -341,6 +353,9 @@ async def log_predictions(db: AsyncSession, game_date: int | None = None, now: d
     version = model_version()
     games = (await db.execute(select(Games).where(Games.date == game_date).order_by(Games.start_time))).scalars().all()
     games = [g for g in games if include_started or (g.game_state not in FINISHED_GAME_STATES and as_utc(g.start_time) > now)]
+    if game_ids is not None:
+        wanted = set(game_ids)
+        games = [g for g in games if g.id in wanted]
     summary = {"run_id": run_id, "model_version": version, "game_date": game_date, "games": len(games),
                "team_rows": 0, "player_rows": 0, "skipped_logged": 0, "no_team_prediction": 0, "player_failures": 0,
                "goalies_not_starting": 0}

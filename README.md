@@ -30,7 +30,7 @@ backend to do the fetching instead.
 
 The forward test's point is a model that doesn't change under it, so its code is baked into the image
 `nhl-fwd-backend` (no bind mount, no `--reload`) and `docker compose up --build` never rebuilds it. Its model
-bundles live in the `nhl-fwd_fwd_models` volume and are retrained every Monday at 03:00 UTC (`TRAIN_SCHEDULE=weekly`,
+bundles live in the `nhl-fwd_fwd_models` volume and are retrained every Monday at midnight Pacific (`TRAIN_SCHEDULE=weekly`,
 `TRAIN_WEEKDAY=0`); each training makes a new `model_version` that the prediction log records.
 
 To move it to new code, commit first (the commit is printed at startup and is how a `model_version` is traced
@@ -51,27 +51,27 @@ A code rebuild keeps the bundles in the volume, so `model_version` only changes 
 | Variable | Default | Meaning |
 |---|---|---|
 | `SCHEDULER_ENABLED` | `1` | `0` turns off every scheduled job and the startup refresh (set per service in `docker-compose.yml`) |
-| `TRAIN_SCHEDULE` | `weekly` | When the 03:00 UTC nightly run retrains: `weekly` (on `TRAIN_WEEKDAY`, 0 = Monday), `nightly`, `off`. Features still update from the fresh logs every night; only the fitted weights wait |
+| `TRAIN_SCHEDULE` | `weekly` | When the nightly run (midnight Pacific) retrains: `weekly` (on `TRAIN_WEEKDAY`, 0 = Monday), `nightly`, `off`. Features still update from the fresh logs every night; only the fitted weights wait |
 | `TRAIN_ON_STARTUP` | unset | `always` forces training at startup. Otherwise startup trains only when a model bundle is missing, so a restart never starts a new `model_version` |
 | `GIT_COMMIT` | `unknown` | Build arg of the backend image, printed at startup |
 | `LIVE_SCORES_POLL_MINUTES` | `10` | How often the NHL score feed is polled while games are under way: the live-scores job, and how long the site reuses the feed for the period, clock and intermission time on today's games (the intermission countdown runs between polls; the game clock shows as of the last poll). The forward container picks it up after its next rebuild |
 
-## Scheduled jobs (all times UTC)
+## Scheduled jobs (times UTC unless noted)
 
 | When | Job | Steps |
 |---|---|---|
-| 03:00 | nightly | schedules, rosters, MoneyPuck player logs and team stats, skater shares, last night's actual starters, last night's lineups, scratches and shift-chart lines, ESPN odds and prop odds, scoring of yesterday's logged predictions, PropLine props, training (per `TRAIN_SCHEDULE`) |
-| 15:00 | morning | injury report, ESPN odds and prop odds, PropLine props, edge board |
-| 21:00 and 22:00 | pregame | starting goalies, injury report, ESPN odds and prop odds, PropLine props, **prediction log**, edge board |
+| 00:00 Pacific (07:00 UTC in summer time, 08:00 in winter) | nightly | schedules, rosters, MoneyPuck player logs and team stats, skater shares, last night's actual starters, last night's lineups, scratches and shift-chart lines, ESPN odds and prop odds, scoring of yesterday's logged predictions, PropLine props, training (per `TRAIN_SCHEDULE`) |
+| 15:00 | morning | starting goalies, injury report, ESPN odds and prop odds, PropLine props, edge board |
+| every 5 min | pregame log | for games starting within 30 minutes that the current model hasn't logged: starting goalies, injury report, the game day's ESPN odds and prop odds, PropLine props for just those games, **prediction log**, edge board; no call when no game is due |
 | every 10 min (`LIVE_SCORES_POLL_MINUTES`) | live scores | only while a game is about to start or under way |
 | every 10 min (`LIVE_SCORES_POLL_MINUTES`) | game-day lineups | dressed players and scratches of games starting within 90 minutes (the NHL posts them shortly before puck drop), and the lines of games that ended in the last 12 hours; no NHL call otherwise |
 | every 30 min | game lines | one bulk PropLine request for the site's moneylines |
 
-A container that starts between 21:00 and 06:00 UTC runs the pregame pipeline first, so a late start still logs
-today's games. The jobs share one lock, so a nightly run never overlaps a manual refresh.
+A starting container first runs the pregame log for unlogged games starting within the next 2 hours, since its
+startup refresh holds the pipeline lock longer than the 30-minute window. The jobs share one lock, so a nightly run never overlaps a manual refresh.
 
-PropLine's free tier is 1,000 requests a day: about 48 for game lines, 30 per props run, and one per event for
-its market list.
+PropLine's free tier is 1,000 requests a day: about 48 for game lines, 30 per full props run (nightly, morning),
+one per game for the pregame log, and one per event for its market list.
 
 ## Refreshing data manually
 
@@ -127,7 +127,7 @@ docker compose exec backend alembic revision --autogenerate -m "what changed"
 
 ## The forward test
 
-`predictions/prediction_log.py` freezes, at 21:00 UTC, the win probability of every game today and the expected
+`predictions/prediction_log.py` freezes, about 30 minutes before each puck drop, the game's win probability and the expected
 counts of every expected skater and goalie, next to the market price at that moment (ESPN's line, else the
 PropLine consensus). The nightly run scores them against results and the closing line: log loss, Poisson
 deviance, calibration, closing-line value and flat-stake return at a 2% edge.

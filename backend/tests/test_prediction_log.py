@@ -246,7 +246,7 @@ def test_log_is_idempotent_and_never_overwrites(fake_models):
         await seed(db)
         first = await PL.log_predictions(db, game_date=20261008, now=NOW)
         again = await PL.log_predictions(db, game_date=20261008, now=NOW + datetime.timedelta(minutes=20))   # same hour
-        later = await PL.log_predictions(db, game_date=20261008, now=NOW + H)    # later run (e.g. the 22:00 retry)
+        later = await PL.log_predictions(db, game_date=20261008, now=NOW + H)    # later run (e.g. a retry)
         team = (await db.execute(select(PredictionLog).order_by(PredictionLog.id))).scalars().all()
         players = (await db.execute(select(PlayerPredictionLog))).scalars().all()
         return first, again, later, team, players
@@ -261,6 +261,21 @@ def test_log_is_idempotent_and_never_overwrites(fake_models):
     assert sog.market_line == 2.5 and sog.market_n_books == 1 and sog.market_over_price == -120
     assert not any(p.stat.startswith("prob_") for p in players)
     assert next(p for p in players if p.stat == "goals").market_line is None   # no goals market posted
+
+
+def test_log_only_the_given_games_and_report_unlogged(fake_models):
+    async def go(db):
+        await seed(db)
+        db.add(game(3, NOW + 3 * H, "FUT"))
+        await db.commit()
+        before = await PL.unlogged_game_ids(db, [1, 3])
+        out = await PL.log_predictions(db, game_date=20261008, now=NOW, game_ids=[3])
+        after = await PL.unlogged_game_ids(db, [1, 3])
+        return before, out, after
+    before, out, after = run(go)
+    assert before == [1, 3]
+    assert out["games"] == 1 and out["team_rows"] == 1
+    assert after == [1]   # game 1 waits for its own pre-game log
 
 
 def test_score_predictions_end_to_end(fake_models):

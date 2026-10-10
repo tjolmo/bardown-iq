@@ -79,9 +79,46 @@ def test_nightly_never_trains_after_a_failed_scrape(monkeypatch):
     assert calls == []
 
 
-def test_missed_pregame_log_window():
-    at = lambda h: datetime.datetime(2026, 10, 8, h, 30, tzinfo=datetime.timezone.utc)
-    assert [h for h in range(24) if main.missed_pregame_log(at(h))] == [0, 1, 2, 3, 4, 5, 21, 22, 23]
+def _game(id, start, state="FUT"):
+    from types import SimpleNamespace
+    return SimpleNamespace(id=id, start_time=start, game_state=state)
+
+
+def test_due_for_pregame_log_window():
+    now = datetime.datetime(2026, 10, 8, 22, 40, tzinfo=datetime.timezone.utc)
+    games = [_game(1, now + datetime.timedelta(minutes=20)),                  # due
+             _game(2, now + datetime.timedelta(minutes=30)),                  # due, right at the lead
+             _game(3, now + datetime.timedelta(minutes=50)),                  # next poll's
+             _game(4, now - datetime.timedelta(minutes=5)),                   # started by the clock
+             _game(5, now + datetime.timedelta(minutes=10), "LIVE"),          # started by its state
+             _game(6, now + datetime.timedelta(minutes=10), "PPD"),           # postponed
+             _game(7, None)]
+    assert schedules.due_for_pregame_log(games, now, schedules.PREGAME_LOG_LEAD) == [1, 2]
+    assert schedules.due_for_pregame_log(games, now, schedules.STARTUP_LOG_LEAD) == [1, 2, 3]
+
+
+def test_pregame_log_runs_each_game_once_and_retries_a_busy_lock(monkeypatch):
+    from app import refresh
+    runs = []
+    due = [10, 11]
+    async def games_due(lead):
+        return list(due)
+    async def pipeline(game_ids):
+        runs.append(list(game_ids))
+    monkeypatch.setattr(schedules, "games_due_for_pregame_log", games_due)
+    monkeypatch.setattr(schedules, "pregame_log_pipeline", pipeline)
+    monkeypatch.setattr(schedules, "_pregame_log_attempted", set())
+
+    async def busy_then_free():
+        async with refresh._lock:
+            refresh._status["running"] = {"name": "manual"}
+            await schedules.log_games_about_to_start()   # lock held: skipped, not marked
+        refresh._status["running"] = None
+        await schedules.log_games_about_to_start()
+        due.append(12)                                  # a later game becomes due; 10 and 11 still unlogged
+        await schedules.log_games_about_to_start()
+    asyncio.run(busy_then_free())
+    assert runs == [[10, 11], [12]]
 
 
 def test_scheduler_enabled_flag(monkeypatch):
@@ -102,9 +139,13 @@ def _stub_startup(monkeypatch, missing: bool, missed_log: bool):
                  "fetch_current_rosters_for_all_teams", "scrape_all_player_logs", "scrape_team_stats"):
         monkeypatch.setattr(main, name, step(name))
     monkeypatch.setattr(main, "train_models", step("train"))
-    monkeypatch.setattr(main, "pregame_odds_pipeline", step("pregame"))
+    async def pregame(game_ids):
+        calls.append("pregame")
+    async def games_due(lead):
+        return [1] if missed_log else []
+    monkeypatch.setattr(main, "pregame_log_pipeline", pregame)
     monkeypatch.setattr(main, "models_missing", lambda: missing)
-    monkeypatch.setattr(main, "missed_pregame_log", lambda: missed_log)
+    monkeypatch.setattr(main, "games_due_for_pregame_log", games_due)
     return calls
 
 
