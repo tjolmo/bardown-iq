@@ -319,7 +319,10 @@ def project_lineup(games: list[PastGame], roster: list[RosterPlayer], injured: d
     ev_d = _weighted_units(games, weights, EV_DEFENSE)
     trios = best_partition(forwards, 3, 4, _group_score(ev_f, _pair_seconds(ev_f), avg_ev))
     pairs = best_partition(defense, 2, 3, _group_score(ev_d, _pair_seconds(ev_d), avg_ev))
-    by_toi = lambda group: (-sum(avg_ev.get(p, 0.0) for p in group) / len(group), group)
+    def by_toi(group):
+        """Most 5-on-5 ice time first, over the members with any (a call-up doesn't sink his new line)."""
+        known = [avg_ev[p] for p in group if p in avg_ev]
+        return (-sum(known) / len(known) if known else 0.0, group)
     trios.sort(key=by_toi)
     pairs.sort(key=by_toi)
 

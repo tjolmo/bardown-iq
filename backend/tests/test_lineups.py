@@ -202,6 +202,7 @@ def test_injured_player_is_replaced_by_the_scratch_and_keeps_his_linemates_toget
     assert proj.changes == {"in": [13], "out": [2]}
     line = next(u for u in proj.forwards if 1 in u.players)
     assert {1, 3} <= set(line.players)                        # the pair left behind stays together
+    assert proj.forwards[0] is line                           # and stays the first line with a call-up on it
     assert 2 not in proj.power_play[0].players
 
 
