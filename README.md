@@ -144,6 +144,14 @@ docker compose exec forward python -m predictions.prediction_log report
 
 Model experiments and their results, version by version, are in `backend/predictions/experiments/RESULTS*.md`.
 
+## The teams page
+
+`GET /teams/standings` serves the teams page: every team's line in the NHL standings (record, points, the NHL's own
+division, conference and league ranks, streak, last ten) and its next game with the model's win chance and the
+edge against the moneyline. The standings come from NHL's `standings/now` feed, fetched at most every 10 minutes
+and not stored; while the feed is down the last good standings are served (`stale: true`), and a team whose line
+is missing still lists with its next game. Nothing is scheduled for it.
+
 ## Lines, injuries and scratches
 
 `GET /teams/{tri_code}/lineup` serves the roster page: the team's next game, its forward lines, defense pairs,

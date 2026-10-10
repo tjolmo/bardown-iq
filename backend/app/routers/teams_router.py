@@ -13,8 +13,10 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from app.dependencies import get_db
 from app.crud.teams import get_team_by_tri_code, check_tri_code_exists, get_team_current_roster, get_all_teams
-from app.crud.games import get_all_games_for_date, get_next_n_games_info_by_tri_code, get_team_last_5_games
+from app.crud.games import get_all_games_for_date, get_next_n_games_info_by_tri_code, get_team_last_5_games, get_next_game_per_team
+from external.nhl.standings import get_standings, STANDINGS_CACHE_TTL_SECONDS
 from app.schemas.teams import TeamBasicInfoOut, Last5GameInfoOut, TeamScheduledGameInfoOut, TeamRosteredPlayer, TeamSidePrediction, TeamGamePredictionOut, TeamMoneylineOut
+from app.schemas.teams import TeamStandingsOut, TeamStandingsRowOut, TeamStandingOut, TeamNextGameOut
 
 router = APIRouter(prefix="/teams", tags=["teams"])
 
@@ -39,6 +41,32 @@ async def moneylines_for(db, games, nhl_fallback: bool, live_statuses: dict | No
                 out[odd.game_id] = TeamMoneylineOut(home=odd.home_moneyline, away=odd.away_moneyline, source="nhl")
     return out
 
+
+
+def team_out(tri_code: str, name: str) -> TeamBasicInfoOut:
+    return TeamBasicInfoOut(name=name, tricode=tri_code,
+                            logoUrl=f"https://assets.nhle.com/logos/nhl/svg/{tri_code}_light.svg" if tri_code else None)
+
+# nicknames of more than one word; every other team's nickname is its last word
+TWO_WORD_NICKNAMES = ("Maple Leafs", "Red Wings", "Blue Jackets", "Golden Knights")
+
+def split_team_name(name: str) -> tuple[str, str]:
+    """"Toronto Maple Leafs" -> ("Toronto", "Maple Leafs")."""
+    nickname = next((n for n in TWO_WORD_NICKNAMES if name.endswith(" " + n)), name.split(" ")[-1])
+    return name[: len(name) - len(nickname)].strip(), nickname
+
+def standing_out(line) -> TeamStandingOut:
+    """A standings feed line as the teams page shows it."""
+    streak = f"{line.streak_code}{line.streak_count}" if line.streak_code and line.streak_count else None
+    return TeamStandingOut(
+        conference=line.conference, division=line.division, gamesPlayed=line.games_played,
+        wins=line.wins, losses=line.losses, otLosses=line.ot_losses, points=line.points,
+        regulationWins=line.regulation_wins, goalsFor=line.goals_for, goalsAgainst=line.goals_against,
+        goalDifferential=line.goal_differential, streak=streak,
+        last10=f"{line.l10_wins}-{line.l10_losses}-{line.l10_ot_losses}",
+        divisionRank=line.division_rank, conferenceRank=line.conference_rank, leagueRank=line.league_rank,
+        wildcardRank=line.wildcard_rank, clinch=line.clinch,
+    )
 
 @router.get("/last5/{tri_code}", status_code=200, response_model=list[Last5GameInfoOut])
 async def get_last_5_games(tri_code: str, db = Depends(get_db)):
@@ -210,6 +238,59 @@ async def get_team_lineup(tri_code: str, db = Depends(get_db)):
     if not await check_tri_code_exists(db, tri_code.upper()):
         raise HTTPException(status_code=404, detail=f"Team {tri_code} not found in DB")
     return await build_team_lineup(db, tri_code)
+
+
+@router.get("/standings", status_code=200, response_model=TeamStandingsOut)
+async def get_standings_board(db = Depends(get_db)):
+    """The teams page: every team with its line in the NHL standings (cached STANDINGS_CACHE_TTL_SECONDS; the last
+    good standings when the feed is down, with stale=True) and its next game with the model's win chance and the
+    edge against the moneyline. The DB's teams, so the page still lists them when the feed has never answered."""
+    teams = await get_all_teams(db)
+    if not teams:
+        raise HTTPException(status_code=404, detail="No teams found in DB")
+    standings = await get_standings()
+    lines = {line.tri_code: line for line in standings.teams} if standings else {}
+    # the feed lists the league's current teams; without it, the DB's minus the one that moved (ARI -> UTA)
+    current = [t for t in teams if (t.tri_code in lines if lines else t.tri_code != "ARI")]
+
+    next_games = await get_next_game_per_team(db)
+    games = list({g.id: g for g in next_games.values()}.values())
+    moneylines = await moneylines_for(db, games, nhl_fallback=True)
+    predictions = {}
+    for game in games:
+        prediction = await get_upcoming_game_prediction(game, db)
+        if prediction is not None:
+            predictions[game.id] = prediction
+    names = {t.tri_code: t.current_name for t in teams}
+
+    rows = []
+    for team in current:
+        line = lines.get(team.tri_code)
+        name = line.name if line else team.current_name
+        # the feed's placeName can be "NY Rangers"; its teamCommonName is the nickname when the name ends with it
+        city, nickname = split_team_name(name)
+        if line and line.nickname and name.endswith(" " + line.nickname):
+            city, nickname = name[: -len(line.nickname)].strip(), line.nickname
+        game = next_games.get(team.tri_code)
+        next_out = None
+        if game is not None:
+            home = game.home_team_tri_code == team.tri_code
+            opp = game.away_team_tri_code if home else game.home_team_tri_code
+            prob_home, prob_away = predictions.get(game.id, (None, None))
+            moneyline = moneylines.get(game.id)
+            next_out = TeamNextGameOut(
+                id=game.id, opponent=team_out(opp, names.get(opp, opp)), home=home, startTime=game.start_time,
+                venue=game.venue, gameState=game.game_state,
+                probWin=prob_home if home else prob_away, moneyline=moneyline,
+                edge=game_edge(game.home_team_tri_code, game.away_team_tri_code, prob_home, prob_away, moneyline),
+            )
+        rows.append(TeamStandingsRowOut(team=team_out(team.tri_code, name), city=city, nickname=nickname,
+                                        standing=standing_out(line) if line else None, nextGame=next_out))
+    rows.sort(key=lambda r: (r.standing.leagueRank if r.standing else 99, r.team.tricode))
+    stale = (standings is not None and
+             (datetime.datetime.now(datetime.timezone.utc) - standings.fetched_at).total_seconds() > STANDINGS_CACHE_TTL_SECONDS)
+    return TeamStandingsOut(seasonId=standings.season_id if standings else None,
+                            asOf=standings.as_of if standings else None, stale=stale, teams=rows)
 
 @router.get("/all", status_code=200, response_model=list[TeamBasicInfoOut])
 async def get_all_teams_basic_info(db = Depends(get_db)):

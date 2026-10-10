@@ -109,6 +109,19 @@ async def get_next_game_info_by_tri_code(db: AsyncSession, tri_code: str) -> Gam
     game = result.scalar_one_or_none()
     return game
 
+async def get_next_game_per_team(db: AsyncSession) -> dict[str, Games]:
+    """tri_code -> the team's next unplayed game (game_state FUT), for every team with one, in one query."""
+    result = await db.execute(
+        select(Games).
+        where(Games.game_state == "FUT").
+        order_by(Games.date.asc(), Games.start_time.asc())
+    )
+    next_games: dict[str, Games] = {}
+    for game in result.scalars().all():
+        for tri_code in (game.home_team_tri_code, game.away_team_tri_code):
+            next_games.setdefault(tri_code, game)
+    return next_games
+
 async def get_next_n_games_info_by_tri_code(db: AsyncSession, tri_code: str, n: int, offset: int = 0) -> list[Games]:
     """Fetches next n games info from db for a team by tri code."""
     result = await db.execute(

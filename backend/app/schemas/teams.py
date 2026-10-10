@@ -168,3 +168,54 @@ class TeamLineupOut(BaseModel):
     scratches: list[TeamScratchOut]
     injuryReportAsOf: datetime.datetime | None
     lineupsUpdatedAt: datetime.datetime | None
+
+class TeamNextGameOut(BaseModel):
+    """A team's next scheduled game as the teams page shows it: the opponent, the model's win chance for this team
+    and the edge (when the model likes a side against the moneyline)."""
+    id: int
+    opponent: TeamBasicInfoOut
+    home: bool
+    startTime: datetime.datetime
+    venue: str | None = None
+    gameState: str
+    probWin: float | None = None           # this team's win probability from the model
+    moneyline: TeamMoneylineOut | None = None
+    edge: TeamGameEdgeOut | None = None
+
+class TeamStandingOut(BaseModel):
+    """One team's line in the NHL standings (regular season), ranks as the NHL orders them (1 is first)."""
+    conference: str                        # Eastern / Western
+    division: str                          # Atlantic / Metropolitan / Central / Pacific
+    gamesPlayed: int
+    wins: int
+    losses: int
+    otLosses: int
+    points: int
+    regulationWins: int
+    goalsFor: int
+    goalsAgainst: int
+    goalDifferential: int
+    streak: str | None = None              # "W3", "L1", "OT2"
+    last10: str | None = None              # "6-3-1"
+    divisionRank: int
+    conferenceRank: int
+    leagueRank: int
+    wildcardRank: int                      # 0 for a team in its division's top three
+    clinch: str | None = None              # x / y / z / p, or e (eliminated)
+
+class TeamStandingsRowOut(BaseModel):
+    """A team on the teams page: who it is, where it stands (None while the standings feed is unavailable) and its
+    next game (None when none is scheduled)."""
+    team: TeamBasicInfoOut
+    city: str
+    nickname: str
+    standing: TeamStandingOut | None = None
+    nextGame: TeamNextGameOut | None = None
+
+class TeamStandingsOut(BaseModel):
+    """The teams page: every team with its standing and next game. seasonId / asOf are None when the standings feed
+    has never answered; stale is True when the last fetch failed and the standings shown are older than the cache."""
+    seasonId: int | None = None            # 20262027
+    asOf: datetime.datetime | None = None  # when the NHL said the standings were current
+    stale: bool = False
+    teams: list[TeamStandingsRowOut]

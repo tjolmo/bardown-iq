@@ -78,3 +78,53 @@ export interface TeamMoneyline {
   n_books?: number | null;
   source?: "propline" | "nhl";
 }
+/** One team's line in the NHL standings; ranks as the NHL orders them (1 is first). */
+export interface TeamStanding {
+  conference: string;   // Eastern / Western
+  division: string;     // Atlantic / Metropolitan / Central / Pacific
+  gamesPlayed: number;
+  wins: number;
+  losses: number;
+  otLosses: number;
+  points: number;
+  regulationWins: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifferential: number;
+  streak: string | null;   // "W3", "L1", "OT2"
+  last10: string | null;   // "6-3-1"
+  divisionRank: number;
+  conferenceRank: number;
+  leagueRank: number;
+  wildcardRank: number;    // 0 for a team in its division's top three
+  clinch: string | null;   // x / y / z / p, or e (eliminated)
+}
+
+/** A team's next scheduled game: the opponent, this team's win chance from the model, and the edge. */
+export interface TeamNextGame {
+  id: number;
+  opponent: Team;
+  home: boolean;
+  startTime: string;
+  venue: string | null;
+  gameState: string;
+  probWin: number | null;
+  moneyline: TeamMoneyline | null;
+  edge: TeamGameEdge | null;
+}
+
+export interface TeamStandingsRow {
+  team: Team;
+  city: string;
+  nickname: string;
+  // null while the standings feed is unavailable
+  standing: TeamStanding | null;
+  nextGame: TeamNextGame | null;
+}
+
+export interface TeamStandings {
+  seasonId: number | null;   // 20262027
+  asOf: string | null;       // when the NHL said the standings were current
+  stale: boolean;            // the feed failed and these are older than the cache
+  teams: TeamStandingsRow[];
+}
