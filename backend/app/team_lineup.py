@@ -2,6 +2,8 @@
 put together from game_lineups / game_units (NHL), the injury report (ESPN), game_starters and the roster."""
 from __future__ import annotations
 
+import datetime
+
 import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.crud.game_starters import STATUS_RANK, load_game_starters
 from app.crud.lineups import (DRESSED, SCRATCHED, get_next_team_game, get_recent_lineup_games, load_lineups,
                               load_units)
-from app.crud.player_injuries import load_injury_report
-from app.line_projection import WINDOW, PastGame, RosterPlayer, Unit, project_lineup
+from app.crud.player_injuries import get_recently_listed_out, load_injury_report
+from app.line_projection import OUT_STATUSES, WINDOW, PastGame, RosterPlayer, Unit, project_lineup
 from app.models import GameLineup, Player
 from app.schemas.teams import (LineupChangesOut, LineupGameOut, LineupGoalieOut, LineupPlayerOut, LineupUnitOut,
                                TeamInjuryOut, TeamLineupOut, TeamScratchOut)
@@ -19,10 +21,16 @@ from app.schemas.teams import (LineupChangesOut, LineupGameOut, LineupGoalieOut,
 HISTORY_GAMES = 82
 # extra games whose units are loaded beyond WINDOW, in case some of the newest have no shift chart
 UNIT_SLACK = 4
+# a player listed out within this long, and no longer listed, is back from injury
+RETURN_LOOKBACK = datetime.timedelta(days=30)
 
 
 def _nan_to_none(value):
-    return None if value is None or (isinstance(value, float) and pd.isna(value)) else value
+    """None for missing values of any kind (None, NaN, NaT), as pandas leaves them in an injury report row."""
+    try:
+        return None if pd.isna(value) else value
+    except (TypeError, ValueError):     # a list or array: not a scalar, never missing
+        return value
 
 
 class _People:
@@ -108,8 +116,11 @@ async def build_team_lineup(db: AsyncSession, team: str) -> TeamLineupOut:
         mine = report[(report["team"] == team) | report["player_id"].isin(roster_ids)]
         injury_rows = [{k: _nan_to_none(v) for k, v in r.items()} for r in mine.to_dict("records")]
     injured = {int(r["player_id"]): r["status"] for r in injury_rows if r.get("player_id") is not None}
+    listed_out = {p for p, status in injured.items() if status in OUT_STATUSES}
+    since = datetime.datetime.now(datetime.timezone.utc) - RETURN_LOOKBACK
+    returning = await get_recently_listed_out(db, list(roster_ids), OUT_STATUSES, since) - listed_out
 
-    projection = project_lineup(games, roster, injured, posted)
+    projection = project_lineup(games, roster, injured, posted, returning=returning)
 
     # scratches: tonight's once posted, else the last game's, for players still on the roster and not projected in
     if posted:
@@ -132,16 +143,14 @@ async def build_team_lineup(db: AsyncSession, team: str) -> TeamLineupOut:
     if projection:
         last_game = next((g for g in games if any(r["status"] == DRESSED for r in g.lineup)), None)
         starter, starter_status = await _starter(db, team, next_game.game_id if next_game else None, last_game)
-        positions = {r["player_id"]: r.get("position") for r in (posted or [])}
-        positions.update({p.id: p.position for p in players if p.position})
-        dressed_goalies = [p for p in projection.dressed if positions.get(p) == "G"]
+        others = [g for g in projection.goalies if g != starter]
+        if starter is None and others:
+            starter, others = others[0], others[1:]
         if starter is not None:
             goalies.append(LineupGoalieOut(role="starter", status=starter_status, player=people.out(starter, "G")))
-        for g in dressed_goalies:
-            if g != starter:
-                goalies.append(LineupGoalieOut(role="backup" if starter is not None else "starter",
-                                               status="confirmed" if posted else "projected", player=people.out(g, "G")))
-                starter = starter if starter is not None else g
+        if others:      # one backup, even when the announced starter isn't in the lineup we have
+            goalies.append(LineupGoalieOut(role="backup", status="confirmed" if posted else "projected",
+                                           player=people.out(others[0], "G")))
 
     updated_at = (await db.execute(select(func.max(GameLineup.fetched_at)).where(
         GameLineup.team == team, GameLineup.game_id.in_(history_ids[:1] + ([next_game.game_id] if next_game else []))))).scalar()

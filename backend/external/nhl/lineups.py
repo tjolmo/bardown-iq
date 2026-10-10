@@ -171,6 +171,14 @@ async def fetch_toi_report(game_id: int, side: str) -> str | None:
         return None
 
 
+def parse_last_period(pbp: dict | None) -> tuple[int, str] | None:
+    """(number, type) of the period the game is in, or ended in: (3, "REG"), (4, "OT"), (5, "SO")."""
+    period = (pbp or {}).get("periodDescriptor") or {}
+    if not period.get("number"):
+        return None
+    return int(period["number"]), str(period.get("periodType") or "")
+
+
 async def fetch_shift_chart(game_id: int) -> dict | None:
     try:
         response = await get_with_retries(SHIFT_CHART_URL, params={"cayenneExp": f"gameId={game_id}"})
@@ -191,6 +199,7 @@ class GameLineupData:
     scratches: list[Scratch] | None
     shifts: list[Shift] | None
     faceoffs: dict[int, int]
+    last_period: tuple[int, str] | None = None   # (number, REG / OT / SO) of the game's last period, per play-by-play
 
 
 async def fetch_game_lineup_data(game_id: int, home: str, away: str, with_shifts: bool = True) -> GameLineupData:
@@ -212,4 +221,4 @@ async def fetch_game_lineup_data(game_id: int, home: str, away: str, with_shifts
     return GameLineupData(
         game_id=game_id, home=home, away=away, roster_spots=spots,
         scratches=parse_scratches(rail, home, away) if rail is not None else None,
-        shifts=shifts, faceoffs=parse_faceoffs(pbp))
+        shifts=shifts, faceoffs=parse_faceoffs(pbp), last_period=parse_last_period(pbp))

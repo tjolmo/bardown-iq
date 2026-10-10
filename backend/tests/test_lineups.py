@@ -37,7 +37,8 @@ def _game_data():
     pbp = _load("pbp_2026020065_lineups.json")
     return N.GameLineupData(game_id=GAME, home="VGK", away="TOR", roster_spots=N.parse_roster_spots(pbp),
                             scratches=N.parse_scratches(_load("rightrail_2026020065.json"), "VGK", "TOR"),
-                            shifts=N.parse_shifts(_load("shiftcharts_2026020065.json")), faceoffs=N.parse_faceoffs(pbp))
+                            shifts=N.parse_shifts(_load("shiftcharts_2026020065.json")), faceoffs=N.parse_faceoffs(pbp),
+                            last_period=N.parse_last_period(pbp))
 
 
 def _deployments(data=None):
@@ -117,8 +118,13 @@ def test_real_game_deployment():
     # Toronto killed four minors (480 s) and had one power play plus a few seconds of a 4-on-3 (120 s)
     assert sum(tor.units[D.PK].values()) == 480 and sum(tor.units[D.PP].values()) == 120
     assert sum(tor.toi_ev.values()) == 5 * 2980
-    assert D.shifts_cover_game(_game_data().shifts, ("VGK", "TOR"))
-    assert not D.shifts_cover_game([s for s in _game_data().shifts if s.period < 3], ("VGK", "TOR"))
+    shifts, teams = _game_data().shifts, ("VGK", "TOR")
+    assert _game_data().last_period == (5, "SO")
+    assert D.shifts_cover_game(shifts, teams, (5, "SO"))                   # overtime played, shootout has no shifts
+    assert not D.shifts_cover_game([s for s in shifts if s.period < 4], teams, (5, "SO"))   # overtime missing
+    assert not D.shifts_cover_game([s for s in shifts if s.period < 3], teams)
+    # the last shifts of the third not in yet (a chart still filling in after the horn)
+    assert not D.shifts_cover_game([s for s in shifts if not (s.period == 3 and s.end > 1150)], teams, (5, "SO"))
     rows = D.unit_rows(GAME, dep)
     assert {r["situation"] for r in rows} == set(D.SITUATIONS) and all(r["seconds"] >= 1 for r in rows)
 
@@ -209,7 +215,7 @@ def test_traded_player_leaves_and_posted_lineup_is_confirmed():
     assert confirmed.lineup_status == "confirmed" and 14 in confirmed.dressed and 12 not in confirmed.dressed
 
 
-def test_regular_back_from_injury_replaces_the_least_used_forward():
+def test_regular_back_from_injury_replaces_the_least_used_forward_but_a_healthy_scratch_stays_out():
     # player 30 averaged the most ice time over three games, then missed the last one (13 dressed in his place)
     star = {1: "C", 2: "L", 3: "R", 4: "C", 5: "L", 6: "R", 7: "C", 8: "L", 9: "R", 10: "C", 11: "L", 30: "R"}
     games = [L.PastGame(g, [{**r, "toi_ev": 1500} if r["player_id"] == 30 else r for r in _lineup(g, star, DEF)],
@@ -218,9 +224,10 @@ def test_regular_back_from_injury_replaces_the_least_used_forward():
     last = L.PastGame(4, [{**r, "toi_ev": 100} if r["player_id"] == 13 else r for r in _lineup(4, last_lineup, DEF)],
                       _units(4, [(1, 2, 3), (4, 5, 6), (7, 8, 9), (10, 11, 13)], PAIRS))
     history = [last] + games[::-1]
-    assert 30 not in L.project_lineup(history, [], {30: "out"}).dressed
-    proj = L.project_lineup(history, [], {})
-    assert 30 in proj.dressed and 13 not in proj.dressed
+    assert 30 not in L.project_lineup(history, [], {30: "out"}, returning={30}).dressed      # still listed
+    assert 30 not in L.project_lineup(history, [], {}).dressed                              # coach's call
+    proj = L.project_lineup(history, [], {}, returning={30})                               # off the report
+    assert 30 in proj.dressed and 13 not in proj.dressed and proj.changes == {"in": [30], "out": [13]}
 
 
 def test_no_history_means_no_projection():
@@ -270,8 +277,43 @@ def test_store_and_query_lineups():
         assert await CL.store_game_lineup(db, empty) == 0
         recent = await CL.get_recent_lineup_games(db, "TOR")
         assert [g.game_id for g in recent] == [GAME] and recent[0].opponent == "VGK" and not recent[0].home
-        nxt = await CL.get_next_team_game(db, "TOR")
+        nxt = await CL.get_next_team_game(db, "TOR", now=NOW)
         assert nxt.game_id == 2026020080 and nxt.opponent == "COL"
+    _run(go)
+
+
+def test_lineup_polling_windows_and_game_types():
+    async def go(db):
+        db.add_all([_game(2026020080, NOW + datetime.timedelta(minutes=30), "FUT", "COL", "TOR"),
+                    _game(2026010080, NOW + datetime.timedelta(minutes=30), "FUT", "BOS", "MTL"),     # preseason
+                    _game(2026020090, NOW - datetime.timedelta(days=20), "FUT", "TOR", "OTT"),        # postponed
+                    _game(2026020091, NOW - datetime.timedelta(hours=3), "LIVE", "EDM", "CGY")])      # never posted
+        await db.commit()
+        assert [g.id for g in await CL.get_games_awaiting_lineups(db, now=NOW)] == [2026020080]
+        # once posted it is fetched again until 15 minutes after puck drop (a late change), then left alone
+        data = _game_data()
+        for spot in data.roster_spots:
+            object.__setattr__(spot, "team", "TOR" if spot.team == "TOR" else "COL")
+        await CL.store_game_lineup(db, N.GameLineupData(2026020080, "COL", "TOR", data.roster_spots, [], None, {}))
+        assert [g.id for g in await CL.get_games_awaiting_lineups(db, now=NOW)] == [2026020080]
+        assert await CL.get_games_awaiting_lineups(db, now=NOW + datetime.timedelta(minutes=50)) == []
+        # a game stuck before its final score weeks ago is not the next game
+        assert (await CL.get_next_team_game(db, "TOR", now=NOW)).game_id == 2026020080
+    _run(go)
+
+
+def test_failed_scratch_fetch_keeps_stored_scratches_and_back_off():
+    async def go(db):
+        db.add(_game(GAME, NOW - datetime.timedelta(hours=5)))
+        await db.commit()
+        data = _game_data()
+        await CL.store_game_lineup(db, data, fetched_at=NOW - datetime.timedelta(hours=4))
+        assert [g.id for g in await CL.get_games_missing_deployment(db, 2026, now=NOW, fetched_before=NOW - datetime.timedelta(minutes=30))] == [GAME]
+        no_rail = N.GameLineupData(GAME, "VGK", "TOR", data.roster_spots, None, data.shifts, data.faceoffs)
+        await CL.store_game_lineup(db, no_rail, _deployments(data), fetched_at=NOW)
+        rows = await CL.load_lineups(db, "TOR", [GAME])
+        assert {r["player_id"] for r in rows if r["status"] == "scratched"} == {MACEWEN, BLANKENBURG}
+        assert all(r["toi"] is not None for r in rows if r["status"] == "dressed")
     _run(go)
 
 
@@ -295,6 +337,9 @@ def test_team_lineup_endpoint_data():
                                 team="TOR", full_name=str(pid), status=status, injury_type="Lower Body"))
         db.add(GameStarter(game_id=2026020080, team="TOR", source="espn", player_id=STOLARZ, status="probable",
                            fetched_at=NOW))
+        # a listing with no report date (NaT once in a DataFrame) must still serialize
+        db.add(PlayerInjury(fetched_at=fetched, espn_athlete_id=9, player_id=None, team="TOR", full_name="Minor Leaguer",
+                            status="out", report_date=None))
         await db.commit()
         await CL.store_game_lineup(db, data, _deployments(data))
         out = await build_team_lineup(db, "tor")
@@ -304,7 +349,8 @@ def test_team_lineup_endpoint_data():
         assert TANEV not in dressed and BLANKENBURG in dressed       # the only healthy D: he draws in
         assert [p.id for p in out.changes.playersOut] == [TANEV] and [p.id for p in out.changes.playersIn] == [BLANKENBURG]
         assert {(s.player.id, s.healthy, s.gamesScratched) for s in out.scratches} == {(MACEWEN, True, 1)}
-        assert {i.playerId: i.status for i in out.injuries} == {TANEV: "ir", BLANKENBURG: "day_to_day"}
+        assert {i.playerId: i.status for i in out.injuries} == {TANEV: "ir", BLANKENBURG: "day_to_day", None: "out"}
+        out.model_dump_json()
         assert out.injuries[0].playerId == TANEV                     # out before day-to-day
         # ESPN's probable starter tonight; last game's starter (Bobrovsky) is the backup
         assert [(g.role, g.player.id, g.status) for g in out.goalies] == [

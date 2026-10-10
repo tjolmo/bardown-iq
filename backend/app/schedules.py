@@ -570,7 +570,8 @@ async def record_game_lineups(games: list, with_shifts: bool = True, concurrency
                 continue
             teams = (game.home_team_tri_code, game.away_team_tri_code)
             deployments = None
-            if game.game_state in FINISHED_GAME_STATES and data.shifts and shifts_cover_game(data.shifts, teams):
+            if (game.game_state in FINISHED_GAME_STATES and data.shifts
+                    and shifts_cover_game(data.shifts, teams, data.last_period)):
                 positions = {s.player_id: s.position for s in data.roster_spots}
                 deployments = game_deployment(data.shifts, positions, teams)
             elif with_shifts and game.game_state in FINISHED_GAME_STATES:
@@ -586,13 +587,15 @@ async def record_game_lineups(games: list, with_shifts: bool = True, concurrency
             stats["with_shifts"] += deployments is not None
     return stats
 
-async def fetch_recent_game_lineups(max_games: int = 400, started_after: datetime.datetime | None = None) -> int:
+async def fetch_recent_game_lineups(max_games: int = 400, started_after: datetime.datetime | None = None,
+                                    fetched_before: datetime.datetime | None = None) -> int:
     """Lineups, scratches and shift-chart deployment of this season's finished games that don't have them yet
     (normally the last night's games; missed nights are caught up). Returns games stored with ice time."""
     from .crud.lineups import get_games_missing_deployment
     async with AsyncSessionLocal() as db:
         games = await get_games_missing_deployment(db, min_season=get_current_season_start_year(),
-                                                   started_after=started_after, limit=max_games)
+                                                   started_after=started_after, fetched_before=fetched_before,
+                                                   limit=max_games)
     if not games:
         return 0
     stats = await record_game_lineups(games)
@@ -603,16 +606,22 @@ async def fetch_recent_game_lineups(max_games: int = 400, started_after: datetim
 async def fetch_game_day_lineups():
     """Runs with the live scores: the lineups and scratches of games about to start (the NHL posts them shortly
     before puck drop), and the ice time of games that just ended, so the roster page follows the night's games
-    instead of waiting for the nightly run. Only calls the NHL API around games."""
+    instead of waiting for the nightly run. Only calls the NHL API around games, and waits out a running pipeline
+    (the nightly run stores the same games)."""
+    from . import refresh
     from .crud.lineups import get_games_awaiting_lineups
+    if refresh.is_running():
+        return
     async with AsyncSessionLocal() as db:
         upcoming = await get_games_awaiting_lineups(db)
     if upcoming:
         stats = await record_game_lineups(upcoming, with_shifts=False)
         if stats["posted"]:
             print(f"Game lineups: posted for {stats['posted']}/{stats['games']} upcoming games")
-    await fetch_recent_game_lineups(max_games=40, started_after=datetime.datetime.now(datetime.timezone.utc)
-                                    - datetime.timedelta(hours=12))
+    # a finished game whose shift chart isn't complete yet is tried again every half hour, not every poll
+    now = datetime.datetime.now(datetime.timezone.utc)
+    await fetch_recent_game_lineups(max_games=40, started_after=now - datetime.timedelta(hours=12),
+                                    fetched_before=now - datetime.timedelta(minutes=30))
 
 async def pregame_odds_pipeline():
     """Game lines and player props for today's games. ESPN posts player props only on game day, so the

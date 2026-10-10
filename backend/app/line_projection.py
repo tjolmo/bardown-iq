@@ -6,8 +6,9 @@ games: game k back (k = 0 for the last one) weighs DECAY ** k, over the last WIN
 
 1. Lineup. The lineup the NHL posted for the game when it is out (shortly before puck drop): "confirmed". Otherwise
    the last game's dressed players, minus anyone traded, sent down or listed out by the injury report, plus a
-   regular coming back (a player whose average 5-on-5 ice time ranks him in the team's top nine forwards or top
-   four defensemen) in place of the dressed player of his group who plays least. Holes are filled with the
+   regular back from injury (recently listed out, no longer listed, and an average 5-on-5 ice time in the team's top
+   nine forwards or top four defensemen) in place of the dressed player of his group who plays least. A healthy
+   scratch is the coach's call and stays out. Holes are filled with the
    available player who played most recently and most, so a healthy scratch draws back in before a call-up.
 2. Lines. Forwards are split into trios and defensemen into pairs by an exact search over every split, scoring each
    trio by the weighted seconds it played together at 5 on 5, plus half the seconds each two of its members shared
@@ -81,6 +82,7 @@ class Projection:
     penalty_kill: list[Unit]
     extras: list[int]                        # dressed but outside the lines (an 11th forward's partner, a 7th D)
     dressed: list[int]
+    goalies: list[int]                       # the dressed goalies, the last game's starter first
     based_on: list[int]                      # game ids that weighed in, newest first
     changes: dict[str, list[int]] = field(default_factory=lambda: {"in": [], "out": []})   # vs the last lineup
 
@@ -271,11 +273,12 @@ def _special_together(games: list[PastGame], weights: dict[int, float], situatio
 
 def project_lineup(games: list[PastGame], roster: list[RosterPlayer], injured: dict[int, str],
                    posted: list[dict] | None = None, season_games: list[PastGame] | None = None,
-                   decay: float = DECAY, window: int = WINDOW) -> Projection | None:
+                   returning: set[int] | None = None, decay: float = DECAY, window: int = WINDOW) -> Projection | None:
     """The projection for the team's next game. `games` are its recent games, newest first; `roster` its current
     players (empty when unknown: nobody is dropped as traded); `injured` maps player ids on the injury report to
     their status; `posted` is the next game's dressed lineup when the NHL has posted it; `season_games` (default
-    `games`) decide who counts as a regular; `decay` and `window` weigh the games (see the module docstring). None
+    `games`) decide who counts as a regular; `returning` are players back from injury (recently listed out, no
+    longer listed), the only ones who can take a regular's place back; `decay` and `window` weigh the games (see the module docstring). None
     when there is no lineup to start from."""
     weights = _weights(games, decay, window)
     last = next((g for g in games if any(r["status"] == "dressed" for r in g.lineup)), None)
@@ -300,7 +303,8 @@ def project_lineup(games: list[PastGame], roster: list[RosterPlayer], injured: d
         dressed = [r["player_id"] for r in posted]
     else:
         status = "projected"
-        dressed = _project_dressed(games, weights, roster, injured, positions, last_dressed, avg_ev, season_ev)
+        dressed = _project_dressed(games, weights, roster, injured, positions, last_dressed, avg_ev, season_ev,
+                                   returning or set())
 
     skaters = [p for p in dressed if positions.get(p) != "G"]
     forwards = [p for p in skaters if positions.get(p) in FORWARDS]
@@ -349,9 +353,11 @@ def project_lineup(games: list[PastGame], roster: list[RosterPlayer], injured: d
         special[situation] = built
 
     placed = {p for u in forward_units + defense_units for p in u.players}
+    last_toi = {r["player_id"]: r.get("toi") or 0 for r in (last.lineup if last else [])}
+    goalies = sorted((p for p in dressed if positions.get(p) == "G"), key=lambda p: (-last_toi.get(p, 0), p))
     return Projection(
         lineup_status=status, forwards=forward_units, defense=defense_units, power_play=special[PP],
-        penalty_kill=special[PK], extras=[p for p in skaters if p not in placed], dressed=dressed,
+        penalty_kill=special[PK], extras=[p for p in skaters if p not in placed], dressed=dressed, goalies=goalies,
         based_on=[g.game_id for g in games if g.game_id in weights],
         changes={"in": [p for p in dressed if p not in last_dressed],
                  "out": [p for p in last_dressed if p not in dressed]} if last_dressed else {"in": [], "out": []})
@@ -359,7 +365,8 @@ def project_lineup(games: list[PastGame], roster: list[RosterPlayer], injured: d
 
 def _project_dressed(games: list[PastGame], weights: dict[int, float], roster: list[RosterPlayer],
                      injured: dict[int, str], positions: dict[int, str], last_dressed: list[int],
-                     avg_ev: dict[int, float], season_ev: dict[int, tuple[float, int]]) -> list[int]:
+                     avg_ev: dict[int, float], season_ev: dict[int, tuple[float, int]],
+                     returning: set[int]) -> list[int]:
     on_roster = {p.player_id for p in roster}
     out = {p for p, status in injured.items() if status in OUT_STATUSES}
 
@@ -381,7 +388,7 @@ def _project_dressed(games: list[PastGame], weights: dict[int, float], roster: l
                         key=lambda p: (-season_toi(p), p))[:regulars]
         for p in ranked:
             mates = [q for q in dressed if group_of(q) == group]
-            if p in dressed or not available(p) or not mates:
+            if p in dressed or p not in returning or not available(p) or not mates:
                 continue
             weakest = min(mates, key=lambda q: (avg_ev.get(q, season_toi(q)), q))
             if season_toi(p) > avg_ev.get(weakest, season_toi(weakest)):

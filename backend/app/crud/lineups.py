@@ -9,8 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deployment import TeamDeployment, unit_rows
 from ..models import GameLineup, GameUnit, Games
-from .games import FINISHED_GAME_STATES
+from .games import FINISHED_GAME_STATES, POLL_MAX_GAME_LENGTH
 
+# regular season (02) and playoffs (03); preseason split-squad lineups would mislead the projection
+GAME_TYPES = (2, 3)
 DRESSED, SCRATCHED = "dressed", "scratched"
 LINEUP_COLUMNS = ["game_id", "team", "player_id", "status", "position", "sweater_number", "first_name", "last_name",
                   "toi", "toi_ev", "toi_pp", "toi_pk", "faceoffs"]
@@ -45,12 +47,16 @@ def lineup_rows(data, deployments: dict[str, TeamDeployment] | None = None) -> d
 async def store_game_lineup(db: AsyncSession, data, deployments: dict[str, TeamDeployment] | None = None,
                             fetched_at: datetime.datetime | None = None) -> int:
     """Replaces the stored lineups of each team whose dressed players are in `data`, and, with `deployments`, the
-    game's units. A fetch that found nothing (lineups not posted yet) changes nothing. Returns lineup rows written."""
+    game's units. A fetch that found nothing (lineups not posted yet) changes nothing; one whose scratches couldn't
+    be fetched (scratches None) keeps the scratches stored before. Returns lineup rows written."""
     fetched_at = fetched_at or datetime.datetime.now(datetime.timezone.utc)
     by_team = lineup_rows(data, deployments)
     written = 0
     for team, rows in by_team.items():
-        await db.execute(delete(GameLineup).where(GameLineup.game_id == data.game_id, GameLineup.team == team))
+        replaced = (GameLineup.game_id == data.game_id) & (GameLineup.team == team)
+        if data.scratches is None:
+            replaced &= (GameLineup.status == DRESSED) | GameLineup.player_id.in_([r["player_id"] for r in rows])
+        await db.execute(delete(GameLineup).where(replaced))
         await db.execute(insert(GameLineup), [{**r, "fetched_at": fetched_at} for r in rows])
         written += len(rows)
     if deployments is not None:
@@ -64,16 +70,19 @@ async def store_game_lineup(db: AsyncSession, data, deployments: dict[str, TeamD
 
 async def get_games_missing_deployment(db: AsyncSession, min_season: int, max_season: int | None = None,
                                        recheck_days: float | None = 3, started_after: datetime.datetime | None = None,
-                                       limit: int | None = None, now: datetime.datetime | None = None) -> list[Games]:
+                                       fetched_before: datetime.datetime | None = None, limit: int | None = None,
+                                       now: datetime.datetime | None = None) -> list[Games]:
     """Finished regular-season and playoff games of seasons `min_season`..`max_season` (start years), oldest first,
     whose lineups have no ice time yet (never fetched, or fetched before the shift chart was in). A game fetched
     without one stops being retried `recheck_days` after it started (None: always retried, as the backfill does);
-    `started_after` keeps only recent games."""
+    `started_after` keeps only recent games and `fetched_before` leaves out games fetched since (a back-off)."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
     have = select(GameLineup.game_id).where(GameLineup.toi.is_not(None)).distinct()
     game_type = Games.id // 10000 % 100
-    conds = [Games.game_state.in_(FINISHED_GAME_STATES), game_type.in_((2, 3)), Games.season >= min_season * 10000,
+    conds = [Games.game_state.in_(FINISHED_GAME_STATES), game_type.in_(GAME_TYPES), Games.season >= min_season * 10000,
              Games.id.not_in(have)]
+    if fetched_before is not None:
+        conds.append(Games.id.not_in(select(GameLineup.game_id).where(GameLineup.fetched_at >= fetched_before)))
     if max_season is not None:
         conds.append(Games.season < (max_season + 1) * 10000)
     if recheck_days is not None:
@@ -89,14 +98,18 @@ async def get_games_missing_deployment(db: AsyncSession, min_season: int, max_se
 
 async def get_games_awaiting_lineups(db: AsyncSession, now: datetime.datetime | None = None,
                                      lead: datetime.timedelta = datetime.timedelta(minutes=90),
-                                     max_age: datetime.timedelta = datetime.timedelta(hours=8)) -> list[Games]:
-    """Unfinished games starting within `lead` (or started up to `max_age` ago) without both teams' lineups stored:
-    the NHL posts lineups and scratches shortly before puck drop."""
+                                     settle: datetime.timedelta = datetime.timedelta(minutes=15),
+                                     max_age: datetime.timedelta = datetime.timedelta(hours=1)) -> list[Games]:
+    """Unfinished regular-season and playoff games whose lineups may still change: starting within `lead`, until
+    `settle` after puck drop (a lineup posted before warm-ups can still change), and, while both teams' lineups are
+    missing, until `max_age` after (the NHL posts lineups and scratches shortly before puck drop)."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
     posted = (select(GameLineup.game_id).where(GameLineup.status == DRESSED)
               .group_by(GameLineup.game_id).having(func.count(func.distinct(GameLineup.team)) >= 2))
     stmt = select(Games).where(Games.start_time <= now + lead, Games.start_time >= now - max_age,
-                               Games.game_state.not_in(FINISHED_GAME_STATES), Games.id.not_in(posted))
+                               Games.game_state.not_in(FINISHED_GAME_STATES),
+                               (Games.id // 10000 % 100).in_(GAME_TYPES),
+                               or_(Games.id.not_in(posted), Games.start_time >= now - settle))
     return list((await db.execute(stmt.order_by(Games.start_time))).scalars().all())
 
 
@@ -119,17 +132,20 @@ async def get_recent_lineup_games(db: AsyncSession, team: str, before: datetime.
                                   limit: int = 10) -> list[TeamGame]:
     """The team's most recent games with a stored lineup, newest first (started before `before` when given)."""
     stmt = (select(Games).join(GameLineup, and_(GameLineup.game_id == Games.id, GameLineup.team == team))
-            .where(GameLineup.status == DRESSED).distinct())
+            .where(GameLineup.status == DRESSED, (Games.id // 10000 % 100).in_(GAME_TYPES)).distinct())
     if before is not None:
         stmt = stmt.where(Games.start_time < before)
     stmt = stmt.order_by(Games.start_time.desc()).limit(limit)
     return [_team_game(g, team) for g in (await db.execute(stmt)).scalars().all()]
 
 
-async def get_next_team_game(db: AsyncSession, team: str) -> TeamGame | None:
-    """The team's next game that isn't over (a game under way counts), by start time."""
+async def get_next_team_game(db: AsyncSession, team: str, now: datetime.datetime | None = None) -> TeamGame | None:
+    """The team's next game that isn't over (a game under way counts), by start time. A game stuck in a non-final
+    state long after it started (postponed, or a missed final score) is skipped."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
     stmt = (select(Games).where(or_(Games.home_team_tri_code == team, Games.away_team_tri_code == team),
-                                Games.game_state.not_in(FINISHED_GAME_STATES), (Games.id // 10000 % 100).in_((2, 3)))
+                                Games.game_state.not_in(FINISHED_GAME_STATES), (Games.id // 10000 % 100).in_(GAME_TYPES),
+                                Games.start_time >= now - POLL_MAX_GAME_LENGTH)
             .order_by(Games.start_time).limit(1))
     game = (await db.execute(stmt)).scalar_one_or_none()
     return _team_game(game, team) if game else None

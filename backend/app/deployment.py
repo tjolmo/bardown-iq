@@ -95,13 +95,25 @@ def game_deployment(shifts: list[Shift], positions: dict[int, str], teams: tuple
     return out
 
 
-def shifts_cover_game(shifts: list[Shift], teams: tuple[str, str], min_players: int = 15) -> bool:
-    """True when the shifts look like a whole game: both teams with shifts for at least `min_players` players in
-    each of the three regulation periods (a game still being played, or a partial chart, is left for later)."""
+PERIOD_SECONDS = 1200
+
+
+def shifts_cover_game(shifts: list[Shift], teams: tuple[str, str], last_period: tuple[int, str] | None = None,
+                      min_players: int = 15) -> bool:
+    """True when the shifts look like a whole game, so they can be stored for good: both teams with shifts for at
+    least `min_players` players in each regulation period, reaching its end, and shifts in every overtime period
+    the game had (`last_period`, from the play-by-play; a shootout has none). A chart still filling in after the
+    final horn is left for the next run."""
     seen: dict[tuple[str, int], set[int]] = defaultdict(set)
+    ends: dict[tuple[str, int], int] = defaultdict(int)
     for s in shifts:
         seen[(s.team, s.period)].add(s.player_id)
-    return all(len(seen[(team, period)]) >= min_players for team in teams for period in (1, 2, 3))
+        ends[(s.team, s.period)] = max(ends[(s.team, s.period)], s.end)
+    regulation = all(len(seen[(team, p)]) >= min_players and ends[(team, p)] >= PERIOD_SECONDS
+                     for team in teams for p in (1, 2, 3))
+    last, kind = last_period or (3, "REG")
+    overtimes = range(4, last + (0 if kind == "SO" else 1))
+    return regulation and all(seen[(team, p)] for team in teams for p in overtimes)
 
 
 def unit_rows(game_id: int, deployments: dict[str, TeamDeployment], min_seconds: int = 1) -> list[dict]:
