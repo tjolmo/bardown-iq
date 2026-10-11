@@ -1,14 +1,12 @@
-from app.crud.players import get_top_n_goalies
 from app.crud.props import get_player_prop_board
-from app.schemas.teams import TeamRosteredPlayer
-from app.crud.players import get_top_n_skaters
 import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.crud.games import get_next_game_info_by_tri_code
 from app.dependencies import get_db
 from app.schemas.player import (GoalieLast5BasicStatsGetOut, GoalieSeasonBasicStatsGetOut, GoaliePredictionOut, PlayerGameLogGetOut, GoalieGameLogGetOut, 
                                 PlayerNextGameGetOut, SkaterLast5BasicStatsGetOut, SkaterSeasonBasicStatsGetOut, PlayerBasicInfoOut, 
-                                PlayerSearchResultOut, PlayerPredictionOut, PlayerPropOut, SkaterGameOut, GoalieGameOut)
+                                PlayerSearchResultOut, PlayerPredictionOut, PlayerPropOut, SkaterGameOut, GoalieGameOut,
+                                TopSkaterOut, TopGoalieOut, TopSkatersOut, TopGoaliesOut)
 from app.crud.players import get_player_by_id, search_players_by_name, get_player_current_team_tri_code
 from app.crud.skater_game_logs import get_skater_last_5_basic_stats_from_db, get_player_game_log_by_game_and_player_id, get_skater_season_basic_stats_from_db, get_latest_logged_season
 from app.crud.goalie_game_logs import get_goalie_last_5_basic_stats_from_db, get_goalie_season_basic_stats_from_db, get_goalie_game_logs
@@ -16,6 +14,7 @@ from app.crud.skater_game_logs import get_skater_game_logs
 from app.crud.prediction_log import get_pregame_player_expectations
 from predictions.predict import predict_skater, predict_goalie
 from app.edge_board import price_props
+from app import leaderboards
 from app.models import Games
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -295,32 +294,52 @@ async def get_goalie_prediction(player_id: int, db = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving prediction for goalie {player_id}: {e}")
 
-@router.get("/top_players/{player_type}/{season}/{n}", status_code=200, response_model=list[TeamRosteredPlayer])
-async def get_top_players(player_type: str, season: str, n: int, db = Depends(get_db)):
-    """Fetches the top n skaters or goalies from the database."""
-    season = await resolve_season(db, season)
+def _top_player_fields(player) -> dict:
+    return dict(id=player.id, headshot=player.headshot, first_name=player.first_name, last_name=player.last_name,
+                current_team_tri_code=player.current_team_tri_code, position=player.position or "U",
+                number=player.number, shoots_catches=player.shoots_catches or "U")
+
+@router.get("/top_players/skaters/{season}/{n}", status_code=200, response_model=TopSkatersOut)
+async def get_top_skaters(season: str, n: int, sort: str = Query("points"), position: str = Query("all"),
+                          db = Depends(get_db)):
+    """The top n rostered skaters this season by `sort` (points, goals, assists, points_per_game, x_goals or
+    pp_points), every one with its season totals; `position` narrows the board to forwards (F) or defence (D)."""
+    season_year = await resolve_season(db, season)
+    if sort not in leaderboards.SKATER_SORTS:
+        raise HTTPException(status_code=400, detail=f"Unknown sort {sort!r}: one of {', '.join(leaderboards.SKATER_SORTS)}")
+    if position not in ("all", *leaderboards.POSITION_GROUPS):
+        raise HTTPException(status_code=400, detail=f"Unknown position {position!r}: all, F or D")
     try:
-        if player_type == "skaters":
-            top_n_players = await get_top_n_skaters(db, n, season)
-        elif player_type == "goalies":
-            top_n_players = await get_top_n_goalies(db, n, season)
-        else:
-            raise HTTPException(status_code=400, detail=f"Invalid player type: {player_type}")
-        if top_n_players:
-            return [TeamRosteredPlayer(
-                    id=player.id, 
-                    headshot=player.headshot,
-                    first_name=player.first_name, 
-                    current_team_tri_code=player.current_team_tri_code, 
-                    position=player.position if player.position else "U", 
-                    last_name=player.last_name, 
-                    number=player.number, 
-                    shoots_catches=player.shoots_catches if player.shoots_catches else "U"
-                ) for player in top_n_players]
-        else:
-            return []
+        rows = await leaderboards.top_skaters(db, season_year, n, sort, position)
+        through = leaderboards.season_through(await leaderboards.latest_game_date(db, season_year))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving top {n} skaters from DB: {e}")
+    return TopSkatersOut(
+        season=season_year, through=through, sort=sort, position=position,
+        skaters=[TopSkaterOut(**_top_player_fields(s.player), games=s.games, goals=s.goals, assists=s.assists,
+                              points=s.points, points_per_game=s.points_per_game, x_goals=s.x_goals,
+                              shots_on_goal=s.shots_on_goal, toi_per_game=s.toi_per_game, pp_points=s.pp_points,
+                              points_by_game=s.points_by_game) for s in rows])
+
+@router.get("/top_players/goalies/{season}/{n}", status_code=200, response_model=TopGoaliesOut)
+async def get_top_goalies(season: str, n: int, sort: str = Query("gsax"),
+                          min_games: int = Query(leaderboards.DEFAULT_GOALIE_MIN_GAMES, ge=1), db = Depends(get_db)):
+    """The top n rostered goalies this season by `sort` (gsax, save_percentage, gaa or shots_faced) among those with
+    at least `min_games` games, every one with its season totals."""
+    season_year = await resolve_season(db, season)
+    if sort not in leaderboards.GOALIE_SORTS:
+        raise HTTPException(status_code=400, detail=f"Unknown sort {sort!r}: one of {', '.join(leaderboards.GOALIE_SORTS)}")
+    try:
+        rows = await leaderboards.top_goalies(db, season_year, n, sort, min_games)
+        through = leaderboards.season_through(await leaderboards.latest_game_date(db, season_year))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving top {n} goalies from DB: {e}")
+    return TopGoaliesOut(
+        season=season_year, through=through, sort=sort, min_games=min_games,
+        goalies=[TopGoalieOut(**_top_player_fields(g.player), games=g.games, shots_faced=g.shots_faced,
+                              goals_against=g.goals_against, x_goals_against=g.x_goals_against,
+                              save_percentage=g.save_percentage, gaa=g.gaa, gsax=g.gsax,
+                              high_danger_shots=g.high_danger_shots) for g in rows])
 
 @router.get("/props/{player_id}", status_code=200, response_model=list[PlayerPropOut])
 async def get_player_props(player_id: int, db = Depends(get_db)):

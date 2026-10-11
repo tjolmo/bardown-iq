@@ -64,6 +64,54 @@ class GoalieGameLogGetOut(BaseModel):
     class Config:
         from_attributes = True
 
+class TopPlayerOut(BaseModel):
+    """A player on one of the leaderboards: who they are and how many games this season."""
+    id: int
+    headshot: str | None
+    first_name: str
+    last_name: str
+    current_team_tri_code: str
+    position: str
+    number: int | None
+    shoots_catches: str
+    games: int
+
+class TopSkaterOut(TopPlayerOut):
+    """A skater's season totals on the top skaters board."""
+    goals: int
+    assists: int
+    points: int
+    points_per_game: float
+    x_goals: float
+    shots_on_goal: int
+    toi_per_game: float     # minutes
+    pp_points: int
+    points_by_game: list[int]   # in game order, for the bars on the top three's cards
+
+class TopGoalieOut(TopPlayerOut):
+    """A goalie's season totals on the top goalies board."""
+    shots_faced: int
+    goals_against: int
+    x_goals_against: float
+    save_percentage: float | None
+    gaa: float | None
+    gsax: float     # goals saved above expected: x_goals_against - goals_against
+    high_danger_shots: int
+
+class TopBoardOut(BaseModel):
+    """What the board was built from, so the page can say so."""
+    season: int
+    through: datetime.date | None   # the latest game logged this season
+    sort: str
+
+class TopSkatersOut(TopBoardOut):
+    position: str
+    skaters: list[TopSkaterOut]
+
+class TopGoaliesOut(TopBoardOut):
+    min_games: int
+    goalies: list[TopGoalieOut]
+
 class SkaterSeasonBasicStatsGetOut(BaseModel):
     """Output model for a Skater's season basic stats"""
     games: int
