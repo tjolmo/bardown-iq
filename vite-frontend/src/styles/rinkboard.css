@@ -728,3 +728,43 @@
   .ed-card .bd-note-tag { right: 12px; font-size: 17px; }
   .ed-who .lb-name { white-space: normal; overflow-wrap: anywhere; }
 }
+
+/* Parlays: one card per parlay, the price, the model's hit chance and the edge across the top, a row per leg */
+.ed-parlay-tools .ed-books { padding-top: var(--space-4); }
+.ed-parlay-hint { max-width: 520px; text-align: right; }
+.ed-parlay { padding: 0; gap: 0; }
+.ed-parlay:hover { border-color: var(--ink); }
+.ed-parlay-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-5); padding: var(--space-5) var(--space-6); }
+.ed-parlay-sum { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-8); }
+.ed-parlay-sum div { display: flex; flex-direction: column; }
+.ed-parlay-sum .bd-label { align-self: auto; font-size: 11px; }
+.ed-parlay-sum strong { font-family: var(--font-display); font-stretch: 75%; font-weight: 900; font-size: 30px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.ed-legs { list-style: none; margin: 0; padding: 0; border-top: 1px dashed var(--line-dashed); }
+.ed-leg { display: grid; grid-template-columns: auto minmax(160px, 1.4fr) minmax(120px, 1fr) 72px 92px auto; align-items: center; gap: var(--space-3) var(--space-5); padding: var(--space-3) var(--space-6); border-top: 1px dashed var(--line-dashed); }
+.ed-leg:first-child { border-top: 0; }
+.ed-leg .lb-name { font-size: 18px; }
+.ed-leg-bet { font-weight: 800; }
+.ed-leg-price { font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
+.ed-leg-model { font-size: 13px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.ed-leg-model strong { color: var(--ink); }
+.ed-leg .bd-edge { min-width: 68px; justify-content: center; padding: 2px 10px; font-size: 13px; }
+
+@media (max-width: 900px) {
+  .ed-parlay-hint { text-align: left; }
+  .ed-leg { grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px var(--space-3); }
+  .ed-leg > .ed-who { grid-column: 2; }
+  .ed-leg > .bd-edge { grid-column: 3; grid-row: 1; }
+  .ed-leg > .ed-leg-bet { grid-column: 2 / -1; grid-row: 2; }
+  .ed-leg > .ed-leg-price { grid-column: 2; grid-row: 3; }
+  .ed-leg > .ed-leg-price:empty { display: none; }
+  .ed-leg > .ed-leg-model { grid-column: 3; grid-row: 3; text-align: right; }
+  .ed-leg > .ed-leg-price:empty + .ed-leg-model { grid-column: 2 / -1; text-align: left; }
+}
+@media (max-width: 680px) {
+  .ed-parlay-head { grid-template-columns: minmax(0, 1fr) auto; padding: var(--space-4); gap: var(--space-3); }
+  .ed-parlay-head .ed-rank { display: none; }
+  .ed-parlay-sum { gap: var(--space-2) var(--space-5); }
+  .ed-parlay-sum strong { font-size: 24px; }
+  .ed-leg { padding: var(--space-3) var(--space-4); }
+  .ed-parlay .bd-note-tag { right: 12px; font-size: 17px; }
+}

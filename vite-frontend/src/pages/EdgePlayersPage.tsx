@@ -2,6 +2,7 @@ import { useMemo, type FC } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { EdgeGameCard, type EdgeRow } from "../components/edges/EdgeGameCard";
 import { EdgePlayerCard } from "../components/edges/EdgePlayerCard";
+import { ParlayView } from "../components/edges/ParlayView";
 import { edgeText, fullName, playerPath, SHORT_MARKETS, sideName } from "../components/edges/edgeFormat";
 import { formatPropType } from "../utils/propMarkets";
 import { Headshot } from "../components/rinkboard/Headshot";
@@ -14,7 +15,7 @@ import { priceSlate, slateBooks, type PricedPlayer, type PricedProp } from "../u
 import { localTime, splitTeamName } from "../utils/gameStatus";
 import { impliedProb, pct, POSITION_NAMES, teamOf } from "../utils/playerStats";
 
-type View = "edge" | "game";
+type View = "edge" | "game" | "parlay";
 
 const MIN_EDGES = [
   { key: "0", label: "Any" },
@@ -26,7 +27,7 @@ const MIN_EDGES = [
 // American odds at or above this are long shots (anytime goals for depth players, mostly)
 const LONG_SHOT_ODDS = 400;
 
-const isView = (v: unknown): v is View => v === "edge" || v === "game";
+const isView = (v: unknown): v is View => v === "edge" || v === "game" || v === "parlay";
 const isFormat = (v: unknown): v is OddsFormat => v === "american" || v === "decimal";
 const isBookList = (v: unknown): v is string[] => Array.isArray(v) && v.every((b) => typeof b === "string");
 
@@ -240,13 +241,14 @@ export const EdgePlayersPage: FC = () => {
                 <div className="tm-seg ed-seg" role="group" aria-label="Arrange the board">
                   <button type="button" aria-pressed={view === "edge"} onClick={() => setView("edge")}>Best edge</button>
                   <button type="button" aria-pressed={view === "game"} onClick={() => setView("game")}>By game</button>
+                  <button type="button" aria-pressed={view === "parlay"} onClick={() => setView("parlay")}>Parlays</button>
                 </div>
                 <div className="tm-seg ed-seg" role="group" aria-label="Odds format">
                   <button type="button" aria-pressed={format === "american"} onClick={() => setFormat("american")}>American</button>
                   <button type="button" aria-pressed={format === "decimal"} onClick={() => setFormat("decimal")}>Decimal</button>
                 </div>
               </div>
-              <div className="ed-filters">
+              {view !== "parlay" && <div className="ed-filters">
                 <Pills label="Edge">
                   {MIN_EDGES.map((m) => (
                     <Pill key={m.key} on={minKey === m.key} onClick={() => set("min", m.key === "0" ? null : m.key)}>{m.label}</Pill>
@@ -261,8 +263,8 @@ export const EdgePlayersPage: FC = () => {
                 <Pill on={hideLongShots} className="ed-toggle" onClick={() => set("long", hideLongShots ? null : "hide")}>
                   <i aria-hidden="true" />HIDE {formatPrice(LONG_SHOT_ODDS, format)} AND LONGER
                 </Pill>
-              </div>
-              <div className="ed-books">
+              </div>}
+              {view !== "parlay" && <div className="ed-books">
                 <Pills label="My books">
                   <Pill on={!mine} onClick={() => setBookList([])}>ALL</Pill>
                   {books.map(([b, n]) => (
@@ -275,46 +277,52 @@ export const EdgePlayersPage: FC = () => {
                 <span className="ed-hint">
                   {mine ? "Prices and edges come only from these books, on the same line" : "Best price across the consensus books"}
                 </span>
-              </div>
+              </div>}
             </div>
 
-            <section className="bd-section" aria-labelledby="board-h">
-              <div className="bd-section-head">
-                <div className="ed-count-wrap">
-                  <h2 id="board-h" className="bd-heading">The board</h2>
-                  <div className="ed-count">
-                    <span><strong>{rows.length}</strong> of {board.players_priced} priced players</span>
-                    <span><strong>{sideCount}</strong> {sideCount === 1 ? "side" : "sides"} with edge</span>
-                    {board.refreshing && <span>Refreshing prices in the background</span>}
+            {view === "parlay" ? (
+              <ParlayView players={board.players} teams={teams} format={format} myBooks={myBooks} gameCount={gameCount} />
+            ) : (
+              <>
+                <section className="bd-section" aria-labelledby="board-h">
+                  <div className="bd-section-head">
+                    <div className="ed-count-wrap">
+                      <h2 id="board-h" className="bd-heading">The board</h2>
+                      <div className="ed-count">
+                        <span><strong>{rows.length}</strong> of {board.players_priced} priced players</span>
+                        <span><strong>{sideCount}</strong> {sideCount === 1 ? "side" : "sides"} with edge</span>
+                        {board.refreshing && <span>Refreshing prices in the background</span>}
+                      </div>
+                    </div>
+                    <div className="ed-legend-wrap">
+                      <span className="bd-note">under 3%? that's mostly line shopping</span>
+                      <div className="bd-legend">
+                        <span><i className="ed-lg-puck" />Model's chance</span>
+                        <span><i className="ed-lg-mark" />Book's chance at that price</span>
+                        <span><i className="ed-lg-chip" />3% or more</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="ed-legend-wrap">
-                  <span className="bd-note">under 3%? that's mostly line shopping</span>
-                  <div className="bd-legend">
-                    <span><i className="ed-lg-puck" />Model's chance</span>
-                    <span><i className="ed-lg-mark" />Book's chance at that price</span>
-                    <span><i className="ed-lg-chip" />3% or more</span>
-                  </div>
-                </div>
-              </div>
 
-              {rows.length === 0 ? (
-                <p className="bd-empty">{emptyLine()}</p>
-              ) : view === "game" ? (
-                <div className="ed-list">
-                  {games.map((g) => <EdgeGameCard key={g[0].player.game_id} rows={g} teams={teams} format={format} />)}
-                </div>
-              ) : (
-                <div className="ed-list">
-                  {rows.map((r, i) => (
-                    <EdgePlayerCard key={r.player.player_id} player={r.player} edgeProps={r.edgeProps} rank={i + 1}
-                      teams={teams} format={format} myBooks={myBooks} longShot={LONG_SHOT_ODDS} />
-                  ))}
-                </div>
-              )}
-            </section>
+                  {rows.length === 0 ? (
+                    <p className="bd-empty">{emptyLine()}</p>
+                  ) : view === "game" ? (
+                    <div className="ed-list">
+                      {games.map((g) => <EdgeGameCard key={g[0].player.game_id} rows={g} teams={teams} format={format} />)}
+                    </div>
+                  ) : (
+                    <div className="ed-list">
+                      {rows.map((r, i) => (
+                        <EdgePlayerCard key={r.player.player_id} player={r.player} edgeProps={r.edgeProps} rank={i + 1}
+                          teams={teams} format={format} myBooks={myBooks} longShot={LONG_SHOT_ODDS} />
+                      ))}
+                    </div>
+                  )}
+                </section>
 
-            {lead && <EdgeMath player={lead.player} prop={lead.prop} format={format} mine={mine} />}
+                {lead && <EdgeMath player={lead.player} prop={lead.prop} format={format} mine={mine} />}
+              </>
+            )}
           </>
         )}
       </main>
