@@ -95,6 +95,23 @@ def test_keeps_a_player_whose_only_edge_is_at_another_book(monkeypatch):
     assert board["players"][0]["best_edge"] < 0 and board["players_priced"] == 2
 
 
+def test_prizepicks_placeholder_price_is_not_an_edge(monkeypatch):
+    g = GAME_IDS[0]
+    fake_predictions(monkeypatch, {1: {"points": 0.7}})
+    real_board = E.get_player_prop_board
+
+    async def with_prizepicks(db, pid):
+        props = await real_board(db, pid)
+        for p in props:
+            p.other_books = [PropBookPriceOut(book="prizepicks", odds=100, line=0.5, consensus=False, pick_app=True,
+                                              priced=False)]
+        return props
+    monkeypatch.setattr(E, "get_player_prop_board", with_prizepicks)
+    # 0.503 at +100 would be a 0.6% edge, but +100 is PrizePicks' placeholder, not a price
+    board = run([game(g, 20261008, LATER), player(1), prop(g, 1, "Over", -110)])
+    assert board["players"] == [] and board["players_priced"] == 1
+
+
 def test_next_slate_skips_started_and_finished_games(monkeypatch):
     fake_predictions(monkeypatch, {1: {"points": 1.2}, 2: {"points": 1.2}, 3: {"points": 1.2}})
     started, finished, tonight, tomorrow = GAME_IDS

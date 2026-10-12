@@ -116,6 +116,10 @@ export interface PropBookPrice {
     book: string;
     odds: number;
     line: number;
-    // false for the books kept out of the consensus (Bovada, exchanges)
+    // false for the books kept out of the consensus (Bovada, exchanges, Fliff, the pick apps)
     consensus: boolean;
+    // a pick'em app (PrizePicks, Underdog, Sleeper, ...): the price is a per-pick payout multiplier
+    pick_app?: boolean;
+    // false when the book posts the line with no price of its own (PrizePicks): `odds` is a placeholder
+    priced?: boolean;
 }

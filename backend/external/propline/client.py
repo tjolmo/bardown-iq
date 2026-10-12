@@ -212,8 +212,8 @@ def _prop_side(outcome: dict, milestone_key: bool, prop_type: str) -> tuple[str,
 
 
 def parse_player_props(results: dict) -> list[PlayerPropsResponse]:
-    """Flattens an event odds payload into props, skipping outcomes that are incomplete, alternate lines and
-    markets the app doesn't use."""
+    """Flattens an event odds payload into props, skipping outcomes that are incomplete, alternate lines (PrizePicks'
+    demons and goblins among them), a pick app's boosted picks and markets the app doesn't use."""
     return_list = []
     for book_key, bookmaker, market in _live_markets(results):
         prop_type, milestone = app_prop_key(market.get("key"))
@@ -225,6 +225,9 @@ def parse_player_props(results: dict) -> list[PlayerPropsResponse]:
         book_last_update = market.get("last_update") or bookmaker.get("last_update")
         for outcome in market.get("outcomes", []) or []:
             if (outcome.get("line_type") or line_type) == "alternate" or outcome.get("dfs_odds_type") not in (None, "standard"):
+                continue
+            # a pick app's boosted or discounted pick (Underdog) pays a multiple of the base payout: not the line's price
+            if outcome.get("payout_multiplier") not in (None, 1, 1.0):
                 continue
             name = outcome.get("description")
             split = _split_name(name)

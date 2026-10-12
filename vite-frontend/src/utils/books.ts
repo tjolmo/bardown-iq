@@ -12,6 +12,13 @@ const BOOK_TITLES: Record<string, string> = {
     novig: "Novig",
     prophetx: "ProphetX",
     polymarket: "Polymarket",
+    fliff: "Fliff",
+    prizepicks: "PrizePicks",
+    underdog: "Underdog",
+    sleeper: "Sleeper",
+    pick6: "DraftKings Pick6",
+    dabble: "Dabble",
+    parlayplay: "ParlayPlay",
     espnbet: "ESPN BET",
 };
 

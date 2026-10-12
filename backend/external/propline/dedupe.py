@@ -1,13 +1,14 @@
 from collections import Counter, defaultdict
 
-from external.propline.books import CONSENSUS_BOOKS
+from external.propline.books import CONSENSUS_BOOKS, PICK_APPS
 
 
 def select_best_props(props: list) -> list:
     """Collapses the same prop offered by several bookmakers into one deliberate row per side.
 
     Props are grouped by (game_id, player_id, prop_type). Within a group only the consensus books count
-    (books.CONSENSUS_BOOKS; the other stored books only when none of them quotes the prop), the consensus line (most
+    (books.CONSENSUS_BOOKS; the other stored books only when none of them quotes the prop, and never a pick app, whose
+    price is a pick payout rather than odds: a prop only the pick apps post has no row), the consensus line (most
     quotes over both sides; the lower line on a tie) is chosen for both sides, so over and under are always the same
     bet, then each side's best price at that line. American odds are better for the bettor the higher they are
     (+150 > +120 > -110 > -130). A side with no quote at that line is left out. The chosen row keeps its `book`.
@@ -19,7 +20,9 @@ def select_best_props(props: list) -> list:
     selected = []
     for group in groups.values():
         consensus = [p for p in group if getattr(p, "book", None) in CONSENSUS_BOOKS]
-        group = consensus or group
+        group = consensus or [p for p in group if getattr(p, "book", None) not in PICK_APPS]
+        if not group:
+            continue
         line_counts = Counter(prop.line for prop in group)
         top = max(line_counts.values())
         consensus_line = min(line for line, count in line_counts.items() if count == top)

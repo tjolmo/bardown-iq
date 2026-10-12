@@ -21,8 +21,9 @@ export const EdgePropRow: FC<Props> = ({ prop, format, myBooks, quiet }) => {
   const yes = isYes(prop.over_under);
   const implied = impliedProb(prop.odds);
   const others = prop.prices.filter((b) => !(b.book === prop.book && b.line === prop.line && b.odds === prop.odds));
-  const why = (book: string, consensus: boolean): string | null =>
-    myBooks.size > 0 && !myBooks.has(book) ? "not one of your books" : !consensus ? "not in consensus" : null;
+  const why = (b: PricedProp["prices"][number]): string | null =>
+    b.priced === false ? "line only, no price" : b.pick_app ? "pick app, per-pick payout"
+      : myBooks.size > 0 && !myBooks.has(b.book) ? "not one of your books" : !b.consensus ? "not in consensus" : null;
 
   return (
     <li className={`pl-prop${quiet ? " ed-prop-quiet" : ""}`}>
@@ -53,11 +54,11 @@ export const EdgePropRow: FC<Props> = ({ prop, format, myBooks, quiet }) => {
       {open && (
         <ul className="pl-book-list">
           {others.map((b) => {
-            const note = why(b.book, b.consensus);
+            const note = why(b);
             return (
               <li key={`${b.book}-${b.line}-${b.odds}`} className={note ? "ed-book-off" : undefined}>
                 <span>{formatBook(b.book)}{b.line !== prop.line && !yes ? ` · ${b.line}` : ""}</span>
-                <strong>{formatPrice(b.odds, format)}</strong>
+                <strong>{b.priced === false ? "—" : formatPrice(b.odds, format)}</strong>
                 {note && <span>{note}</span>}
               </li>
             );

@@ -49,3 +49,14 @@ def test_both_sides_share_the_consensus_line():
              prop(2.5, -105, over_under="Under"), prop(2.5, -110, over_under="Under", book="fanduel")]
     best = {p.over_under: (p.line, p.odds) for p in select_best_props(props)}
     assert best == {"Over": (2.5, -110), "Under": (2.5, -105)}
+
+
+def test_pick_apps_never_set_the_price():
+    # PrizePicks' placeholder +100 and Sleeper's pick payout lose to a consensus book's -110 whatever they say
+    props = [prop(0.5, -110, book="fanduel"), prop(0.5, 100, book="prizepicks"), prop(0.5, 130, book="sleeper")]
+    assert select_best_props(props)[0].book == "fanduel"
+    # with no consensus book, the other sportsbooks still stand in, but not the pick apps
+    props = [prop(0.5, 120, book="bovada"), prop(0.5, 140, book="fliff"), prop(0.5, 150, book="underdog")]
+    assert select_best_props(props)[0].book == "fliff"
+    # a prop only the pick apps post has no row
+    assert select_best_props([prop(0.5, 100, book="prizepicks"), prop(0.5, -120, book="sleeper")]) == []

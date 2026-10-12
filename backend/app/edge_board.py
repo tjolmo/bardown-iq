@@ -55,11 +55,13 @@ async def price_props(db: AsyncSession, player: Player | None, props: list[Playe
 
 
 def best_price_edge(prop: PlayerPropOut) -> float | None:
-    """The side's edge at the best price any stored book has on its line, Bovada and the exchanges included (the shown
-    price is the best of the consensus books only). None when the model hasn't priced the side."""
+    """The side's edge at the best price any stored book has on its line, Bovada, the exchanges and the pick apps
+    included (the shown price is the best of the consensus books only); PrizePicks has no price and doesn't count.
+    None when the model hasn't priced the side."""
     if prop.model_prob is None:
         return None
-    best = max([prop.odds] + [b.odds for b in prop.other_books if b.line == prop.line], key=american_to_decimal)
+    best = max([prop.odds] + [b.odds for b in prop.other_books if b.line == prop.line and b.priced],
+               key=american_to_decimal)
     return prop.model_prob * american_to_decimal(best) - 1
 
 

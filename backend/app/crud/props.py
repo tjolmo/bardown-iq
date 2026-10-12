@@ -4,7 +4,7 @@ from sqlalchemy import delete, select, func
 from app.crud.prop_quotes import get_quotes_for_games, latest_fetch
 from app.models import PlayerPropOdds, Props
 from app.schemas.player import PlayerPropOut, PropBookPriceOut
-from external.propline.books import CONSENSUS_BOOKS
+from external.propline.books import CONSENSUS_BOOKS, PICK_APPS, UNPRICED_BOOKS
 
 PROPS_COLUMNS = {"game_id", "player_id", "prop_type", "over_under", "odds", "line", "book"}
 
@@ -63,11 +63,12 @@ def espn_prop_rows(markets, covered: set[str]) -> list[PlayerPropOut]:
 def other_book_prices(prop: PlayerPropOut, quotes) -> list[PropBookPriceOut]:
     """Every other stored book's price for the same prop and side in the latest fetch, best first: the "+N books"
     list under a prop card. The shown price (its book at its line) is left out."""
-    out = [PropBookPriceOut(book=q.bookmaker, odds=q.odds, line=q.line, consensus=q.bookmaker in CONSENSUS_BOOKS)
+    out = [PropBookPriceOut(book=q.bookmaker, odds=q.odds, line=q.line, consensus=q.bookmaker in CONSENSUS_BOOKS,
+                            pick_app=q.bookmaker in PICK_APPS, priced=q.bookmaker not in UNPRICED_BOOKS)
            for q in quotes
            if q.prop_type == prop.prop_type and q.over_under == prop.over_under
            and not (q.bookmaker == prop.book and q.line == prop.line)]
-    return sorted(out, key=lambda b: (b.line != prop.line, b.line, -b.odds))
+    return sorted(out, key=lambda b: (b.line != prop.line, b.line, not b.priced, -b.odds))
 
 
 async def get_player_prop_board(db: AsyncSession, player_id: int) -> list[PlayerPropOut]:
