@@ -1,10 +1,17 @@
 import { apiGet } from "./client";
-import type { Team, TeamScheduledGame, SearchTeamResult, TeamStandings } from "../types/teams";
+import type { Team, TeamLookup, TeamScheduledGame, SearchTeamResult, TeamStandings } from "../types/teams";
 import type { PlayerFullData } from "../types/player";
 import type { TeamLineup } from "../types/lineup";
 
 export const getTeams = () =>
     apiGet<Team[]>("/teams/all");
+
+// the teams list only names and logos a board's rows; without it a page still shows, on tricodes
+let teamsOnce: Promise<TeamLookup> | null = null;
+export const getTeamLookup = (): Promise<TeamLookup> =>
+    (teamsOnce ??= getTeams()
+        .then((teams) => Object.fromEntries(teams.map((t) => [t.tricode, t])))
+        .catch(() => ({})));
 
 export const getTeamNextFiveGames = (tricode: string, offset: number = 0) =>
     apiGet<TeamScheduledGame[]>(`/teams/${tricode}/next_5/${offset}`);

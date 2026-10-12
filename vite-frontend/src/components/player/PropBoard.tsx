@@ -3,7 +3,7 @@ import type { PlayerPropData } from "../../types/player";
 import { formatBook } from "../../utils/books";
 import { americanOdds, impliedProb, pct, signed } from "../../utils/playerStats";
 import { STRONG_EDGE_POINTS } from "../rinkboard/EdgeChip";
-import { formatPropType } from "./PlayerPropCard";
+import { formatPropType } from "../../utils/propMarkets";
 import { OddsMeter } from "./ModelTile";
 
 const sideName = (side: string) => {

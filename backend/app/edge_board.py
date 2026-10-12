@@ -1,5 +1,6 @@
-"""Players with edge: every player with a prop on the next slate where the model's expected return at the shown price
-is positive for at least one side (the same model_prob/edge the player page shows).
+"""Players with edge: every player with a prop on the next slate where the model's expected return is positive for at
+least one side, at the shown price (the same model_prob/edge the player page shows) or at any other book's price on
+the same line, which the page reaches when it's filtered to the visitor's books.
 
 Pricing a slate is one model prediction per player with props (~37 a game, ~0.15 s each), so a full slate takes most
 of a minute. The board is cached per game day: a request gets the cached board straight away and, once it's older
@@ -53,6 +54,15 @@ async def price_props(db: AsyncSession, player: Player | None, props: list[Playe
     return expected
 
 
+def best_price_edge(prop: PlayerPropOut) -> float | None:
+    """The side's edge at the best price any stored book has on its line, Bovada and the exchanges included (the shown
+    price is the best of the consensus books only). None when the model hasn't priced the side."""
+    if prop.model_prob is None:
+        return None
+    best = max([prop.odds] + [b.odds for b in prop.other_books if b.line == prop.line], key=american_to_decimal)
+    return prop.model_prob * american_to_decimal(best) - 1
+
+
 def _models_key() -> tuple:
     return tuple(p.stat().st_mtime if p.exists() else None for p in (SKATER_BUNDLE, GOALIE_BUNDLE))
 
@@ -73,7 +83,8 @@ async def next_slate(db: AsyncSession, now: datetime.datetime | None = None) -> 
 
 async def build_board(db: AsyncSession, now: datetime.datetime | None = None) -> dict:
     """Prices every player with props on the next slate. Players are kept when at least one side has a positive
-    edge; each keeps all of his priced props so the page can show the rest on demand."""
+    edge at some book's price (best_edge is the best at the shown, consensus prices, and can be negative for a player
+    whose only edge is at another book); each keeps all of his priced props so the page can show the rest on demand."""
     day, games = await next_slate(db, now)
     board = {"game_date": day, "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
              "players_priced": 0, "players": []}
@@ -106,7 +117,7 @@ async def build_board(db: AsyncSession, now: datetime.datetime | None = None) ->
             continue
         board["players_priced"] += 1
         edges = [p.edge for p in props if p.edge is not None]
-        if not edges or max(edges) <= 0:
+        if not any((e := best_price_edge(p)) is not None and e > 0 for p in props):
             continue
         team = player.current_team_tri_code
         home = team == game.home_team_tri_code

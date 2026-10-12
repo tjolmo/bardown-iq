@@ -1,22 +1,34 @@
-import { useMemo, useState, type FC } from "react";
-import { Link } from "react-router-dom";
+import { useMemo, type FC } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { EdgeGameCard, type EdgeRow } from "../components/edges/EdgeGameCard";
+import { EdgePlayerCard } from "../components/edges/EdgePlayerCard";
+import { edgeText, fullName, playerPath, SHORT_MARKETS, sideName } from "../components/edges/edgeFormat";
+import { formatPropType } from "../utils/propMarkets";
+import { Headshot } from "../components/rinkboard/Headshot";
+import { RinkHero } from "../components/rinkboard/RinkHero";
 import { useEdgeBoard } from "../hooks/useEdgeBoard";
-import { PlayerPropCard, formatPropType } from "../components/player/PlayerPropCard";
-import type { EdgePlayer } from "../types/edges";
-import type { PlayerPropData } from "../types/player";
-import ErrorPage from "./ErrorPage";
+import { useStoredState } from "../hooks/useStoredState";
+import type { TeamLookup } from "../types/teams";
+import { decimalOdds, formatBook, formatPrice, type OddsFormat } from "../utils/books";
+import { priceSlate, slateBooks, type PricedPlayer, type PricedProp } from "../utils/edgePricing";
+import { localTime, splitTeamName } from "../utils/gameStatus";
+import { impliedProb, pct, POSITION_NAMES, teamOf } from "../utils/playerStats";
+
+type View = "edge" | "game";
 
 const MIN_EDGES = [
-  { value: 0, label: "Any edge" },
-  { value: 0.03, label: "3%+" },
-  { value: 0.05, label: "5%+" },
-  { value: 0.1, label: "10%+" },
+  { key: "0", label: "Any" },
+  { key: "0.03", label: "3%+" },
+  { key: "0.05", label: "5%+" },
+  { key: "0.1", label: "10%+" },
 ];
 
 // American odds at or above this are long shots (anytime goals for depth players, mostly)
 const LONG_SHOT_ODDS = 400;
 
-const formatEdge = (edge: number): string => `${edge > 0 ? "+" : ""}${(edge * 100).toFixed(1)}%`;
+const isView = (v: unknown): v is View => v === "edge" || v === "game";
+const isFormat = (v: unknown): v is OddsFormat => v === "american" || v === "decimal";
+const isBookList = (v: unknown): v is string[] => Array.isArray(v) && v.every((b) => typeof b === "string");
 
 const formatGameDate = (date: number): string => {
   const s = String(date);
@@ -25,184 +37,287 @@ const formatGameDate = (date: number): string => {
   });
 };
 
-const formatStart = (iso: string | null): string =>
-  iso ? new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
+const betName = (p: PricedProp): string =>
+  `${sideName(p.over_under)}${p.over_under.toUpperCase() === "YES" ? "" : ` ${p.line}`} ${formatPropType(p.prop_type).toLowerCase()}`;
 
-const Chip: FC<{ active: boolean; onClick: () => void; children: React.ReactNode }> = ({ active, onClick, children }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    aria-pressed={active}
-    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${active
-      ? "bg-blue-600 text-white shadow-md shadow-blue-200"
-      : "bg-white text-slate-500 hover:text-slate-700 shadow-sm shadow-slate-200/60"
-      }`}
-  >
+const Pills: FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="lb-pills" role="group" aria-label={label}>
+    <span className="bd-label">{label}</span>
+    <div className="lb-pills-row">{children}</div>
+  </div>
+);
+
+const Pill: FC<{ on: boolean; onClick: () => void; className?: string; title?: string; children: React.ReactNode }> = ({ on, onClick, className, title, children }) => (
+  <button type="button" className={`pl-filter${className ? ` ${className}` : ""}`} aria-pressed={on} onClick={onClick} title={title}>
     {children}
   </button>
 );
 
-interface RowProps {
-  player: EdgePlayer;
-  edgeProps: PlayerPropData[];
-}
-
-const EdgePlayerRow: FC<RowProps> = ({ player, edgeProps }) => {
-  const [showAll, setShowAll] = useState(false);
-  const shown = showAll ? player.props : edgeProps;
-  const best = Math.max(...edgeProps.map((p) => p.edge ?? 0));
-  const linkTo = player.position === "G" ? `/goalie/${player.player_id}` : `/player/${player.player_id}`;
-
+/** Centre ice: the slate's best edge at the visitor's books. */
+const LeadZone: FC<{ lead: { player: PricedPlayer; prop: PricedProp } | null; teams: TeamLookup; format: OddsFormat; mine: boolean; loading: boolean }> = ({
+  lead, teams, format, mine, loading,
+}) => {
+  if (loading) {
+    return (
+      <div className="ed-lead-wait" role="status">
+        <strong>Pricing the slate's props</strong>
+        <span className="bd-muted">The first load of the day can take up to a minute.</span>
+      </div>
+    );
+  }
+  if (!lead) {
+    return <span className="bd-muted" style={{ fontSize: 13, fontWeight: 600 }}>No prop has an edge {mine ? "at your books" : "on this slate"}.</span>;
+  }
+  const { player, prop } = lead;
+  const team = player.team ? teamOf(teams, player.team) : null;
   return (
-    <div className="bg-white/60 rounded-3xl shadow-lg shadow-slate-200/50 p-4 sm:p-5">
-      <div className="flex items-center gap-3 mb-4">
-        {player.headshot ? (
-          <img src={player.headshot} alt="" className="w-12 h-12 rounded-full bg-slate-100 object-cover shrink-0" />
-        ) : (
-          <div className="w-12 h-12 rounded-full bg-slate-100 shrink-0" />
-        )}
-        <div className="min-w-0 flex-1">
-          <Link to={linkTo} className="font-black text-slate-800 hover:text-blue-700 truncate block">
-            {player.first_name} {player.last_name}
-          </Link>
-          <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-2">
-            <span className="font-semibold">{player.position}</span>
-            <span>
-              {player.team} {player.home ? "vs" : "@"} {player.opponent}
-            </span>
-            <span>{formatStart(player.start_time)}</span>
-            {player.starter_status && (
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                {player.starter_status} starter
-              </span>
-            )}
-          </div>
-        </div>
-        <span className="shrink-0 inline-flex items-center rounded-lg bg-emerald-50 px-3 py-1.5 text-sm font-bold text-emerald-700 tabular-nums">
-          {formatEdge(best)}
+    <div className="lb-leader">
+      <Headshot player={player} size={130} className="lb-face-lead" />
+      <div className="lb-leader-text">
+        <span className="bd-chip bd-chip-final" style={{ alignSelf: "flex-start" }}>Best edge {mine ? "at your books" : "on the slate"}</span>
+        <Link to={playerPath(player)} className="lb-name lb-name-xl">{fullName(player)}</Link>
+        <span className="lb-leader-meta">
+          {team && <img src={team.logoUrl} alt="" />}
+          {team && <span>{team.name === team.tricode ? team.name : splitTeamName(team.name).nickname}</span>}
+          {player.position && <span>· {POSITION_NAMES[player.position] ?? player.position}</span>}
+          <span style={{ flexBasis: "100%" }}>{player.home ? "vs" : "@"} {player.opponent}{player.start_time && ` · ${localTime(player.start_time)}`}</span>
+        </span>
+        <span className="lb-leader-big">
+          <span className="bd-score lb-big ed-red">{edgeText(prop.edge!)}</span>
+          <span className="bd-label">Edge</span>
+        </span>
+        <span className="bd-muted" style={{ fontSize: 14 }}>
+          <strong className="ed-ink">{betName(prop)}</strong> at <strong className="ed-ink">{formatPrice(prop.odds, format)}</strong>, {formatBook(prop.book)}.
+          {prop.model_prob !== null && ` Model ${pct(prop.model_prob)}, book ${pct(impliedProb(prop.odds))}.`}
         </span>
       </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {shown.map((prop) => (
-          <PlayerPropCard key={`${prop.prop_type}-${prop.over_under}-${prop.line}-${prop.source}`} {...prop} />
-        ))}
-      </div>
-
-      {player.props.length > edgeProps.length && (
-        <button
-          type="button"
-          onClick={() => setShowAll((v) => !v)}
-          className="mt-3 text-xs font-semibold text-blue-600 hover:text-blue-700"
-        >
-          {showAll ? "Show edges only" : `Show all ${player.props.length} props`}
-        </button>
-      )}
     </div>
   );
 };
 
+/** The edge worked through on the top bet: the model's chance times the payout, less the stake. */
+const EdgeMath: FC<{ player: PricedPlayer; prop: PricedProp; format: OddsFormat; mine: boolean }> = ({ player, prop, format, mine }) => {
+  const dec = decimalOdds(prop.odds);
+  const chance = prop.model_prob!;
+  return (
+    <section className="bd-section" aria-labelledby="math-h">
+      <div className="bd-section-head">
+        <h2 id="math-h" className="bd-heading">How the edge is figured</h2>
+        <span className="bd-label">{fullName(player)}, {betName(prop)}</span>
+      </div>
+      <div className="bd-card ed-math">
+        <div>
+          <span className="bd-label">Model's chance</span>
+          <span className="bd-score">{(chance * 100).toFixed(1)}%</span>
+          <p>How often the model has {player.first_name} going {betName(prop)}.</p>
+        </div>
+        <div>
+          <span className="bd-label">× Payout per $1</span>
+          <span className="bd-score">{dec.toFixed(2)}</span>
+          <p>
+            {format === "decimal" ? "The price" : formatPrice(prop.odds, format)} at {formatBook(prop.book)}, the best {mine ? "at your books" : "across the books"},
+            returns ${dec.toFixed(2)} on a winning dollar.
+          </p>
+        </div>
+        <div>
+          <span className="bd-label">− The stake</span>
+          <span className="bd-score">{(chance * dec).toFixed(3)} − 1</span>
+          <p>What each dollar is worth if the model is right, less the dollar itself.</p>
+        </div>
+        <div>
+          <span className="bd-label">= Edge</span>
+          <span className="bd-score ed-red">{edgeText(prop.edge!)}</span>
+          <p>Expected return per dollar. A small edge often comes from one book's price being a little better than the rest, not from the forecast.</p>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+/** Players with edge: every prop side on the next slate the model prices above the best available price, on the Rink
+ *  Board. The odds format and the visitor's books are kept in this browser; the filters live in the URL. */
 export const EdgePlayersPage: FC = () => {
-  const { data: board, loading, error } = useEdgeBoard();
-  const [minEdge, setMinEdge] = useState(0);
-  const [market, setMarket] = useState<string | null>(null);
-  const [hideLongShots, setHideLongShots] = useState(false);
+  const { data: board, teams, loading, error } = useEdgeBoard();
+  const [params, setParams] = useSearchParams();
+  const [view, setView] = useStoredState<View>("edges.view", "edge", isView);
+  const [format, setFormat] = useStoredState<OddsFormat>("edges.oddsFormat", "american", isFormat);
+  const [bookList, setBookList] = useStoredState<string[]>("edges.books", [], isBookList);
+
+  const minParam = params.get("min") ?? "0";
+  const minKey = MIN_EDGES.some((m) => m.key === minParam) ? minParam : "0";
+  const minEdge = Number(minKey);
+  const market = params.get("market");
+  const hideLongShots = params.get("long") === "hide";
+  const set = (key: string, value: string | null) =>
+    setParams((p) => {
+      if (value === null) p.delete(key);
+      else p.set(key, value);
+      return p;
+    }, { replace: true });
+
+  const books = useMemo(() => slateBooks(board?.players ?? []), [board]);
+  // a remembered book that isn't on this slate doesn't filter the board down to nothing
+  const myBooks = useMemo(() => new Set(bookList.filter((b) => books.some(([k]) => k === b))), [bookList, books]);
+  const toggleBook = (b: string) => setBookList(myBooks.has(b) ? bookList.filter((x) => x !== b) : [...bookList, b]);
+
+  const slate = useMemo(() => priceSlate(board?.players ?? [], myBooks), [board, myBooks]);
 
   const markets = useMemo(() => {
     const keys = new Set<string>();
-    board?.players.forEach((p) => p.props.forEach((prop) => (prop.edge ?? 0) > 0 && keys.add(prop.prop_type)));
+    slate.forEach((pl) => pl.props.forEach((p) => (p.edge ?? 0) > 0 && keys.add(p.prop_type)));
+    if (market) keys.add(market);
     return [...keys].sort((a, b) => formatPropType(a).localeCompare(formatPropType(b)));
-  }, [board]);
+  }, [slate, market]);
 
-  const rows = useMemo(() => {
-    const qualifies = (prop: PlayerPropData) =>
-      prop.edge !== null && prop.edge > minEdge
-      && (market === null || prop.prop_type === market)
-      && !(hideLongShots && prop.odds >= LONG_SHOT_ODDS);
-    return (board?.players ?? [])
-      .map((player) => ({ player, edgeProps: player.props.filter(qualifies) }))
-      .filter((row) => row.edgeProps.length > 0)
-      .sort((a, b) => Math.max(...b.edgeProps.map((p) => p.edge!)) - Math.max(...a.edgeProps.map((p) => p.edge!)));
-  }, [board, minEdge, market, hideLongShots]);
+  const rows: EdgeRow[] = useMemo(() => {
+    const passes = (p: PricedProp) =>
+      p.edge !== null && p.edge > minEdge
+      && (market === null || p.prop_type === market)
+      && !(hideLongShots && p.odds >= LONG_SHOT_ODDS);
+    return slate
+      .map((player) => ({ player, edgeProps: player.props.filter(passes).sort((a, b) => b.edge! - a.edge!) }))
+      .filter((r) => r.edgeProps.length > 0)
+      .sort((a, b) => b.edgeProps[0].edge! - a.edgeProps[0].edge!);
+  }, [slate, minEdge, market, hideLongShots]);
 
-  if (error) return <ErrorPage message="Error loading players with edge." />;
+  const games = useMemo(() => {
+    const byGame = new Map<number, EdgeRow[]>();
+    rows.forEach((r) => byGame.set(r.player.game_id, [...(byGame.get(r.player.game_id) ?? []), r]));
+    return [...byGame.values()];
+  }, [rows]);
+
+  // the hero and the worked example follow the books and the odds format, not the filters
+  const lead = useMemo(() => {
+    let best: { player: PricedPlayer; prop: PricedProp } | null = null;
+    for (const player of slate) {
+      for (const prop of player.props) {
+        if (prop.edge !== null && prop.edge > 0 && prop.model_prob !== null && (!best || prop.edge > best.prop.edge!)) best = { player, prop };
+      }
+    }
+    return best;
+  }, [slate]);
+
+  const mine = myBooks.size > 0;
+  const gameCount = new Set(board?.players.map((p) => p.game_id)).size;
+  const sideCount = rows.reduce((n, r) => n + r.edgeProps.length, 0);
+
+  const emptyLine = () => {
+    const what = [minEdge ? `clears ${minEdge * 100}%` : "has an edge", market && `in ${formatPropType(market).toLowerCase()}`, mine && "at your books"]
+      .filter(Boolean).join(" ");
+    return `No prop ${what}. Lower the edge, pick another market${mine ? " or add a book" : ""}.`;
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-100 font-sans p-4 sm:p-6 lg:p-10">
-      <div className="fixed top-0 right-0 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="fixed bottom-0 left-0 w-64 h-64 bg-indigo-400/10 rounded-full blur-3xl pointer-events-none" />
+    <div className="bd-page">
+      <main className="bd-main">
+        <RinkHero
+          labelledBy="edge-title"
+          left={
+            <>
+              <span className="bd-label" style={{ alignSelf: "flex-start" }}>
+                {board?.game_date
+                  ? `${formatGameDate(board.game_date)} · ${gameCount} ${gameCount === 1 ? "game" : "games"}`
+                  : "The next slate"}
+              </span>
+              <h1 id="edge-title" className="bd-display-xl">Players<br />with Edge</h1>
+              <p className="bd-muted" style={{ margin: 0, maxWidth: 340 }}>
+                Every prop where the model's chance, at the best price {mine ? "at your books" : "across the books"}, pays back more than the stake.
+                Edge is the expected return on each dollar.
+              </p>
+            </>
+          }
+          right={error ? null : <LeadZone lead={lead} teams={teams} format={format} mine={mine} loading={loading} />}
+        />
 
-      <div className="relative max-w-5xl mx-auto space-y-6">
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/60 overflow-hidden">
-          <div className="h-20 bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 relative">
-            <div
-              className="absolute inset-0 opacity-20"
-              style={{
-                backgroundImage:
-                  "repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,.15) 10px, rgba(255,255,255,.15) 11px)",
-              }}
-            />
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <h1 className="text-white font-black text-2xl tracking-tight drop-shadow">Players with Edge</h1>
-              {board?.game_date && (
-                <p className="text-blue-200 text-xs font-semibold mt-0.5 tracking-widest uppercase">
-                  {formatGameDate(board.game_date)}
-                </p>
-              )}
-            </div>
-          </div>
-          <p className="px-5 py-3 text-xs text-slate-500">
-            Players with at least one prop where the model's chance times the best available price is above 1.
-            Edge is the expected return per unit staked. Best prices are taken across books, so small edges are mostly
-            line shopping, not a forecast.
-          </p>
-        </div>
-
-        {loading ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-center">
-            <div className="relative w-12 h-12">
-              <div className="absolute inset-0 rounded-full border-4 border-slate-100" />
-              <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-600 animate-spin" />
-            </div>
-            <p className="text-slate-700 font-semibold text-sm">Pricing the slate's props…</p>
-            <p className="text-slate-400 text-xs">The first load of the day can take up to a minute.</p>
-          </div>
+        {error ? (
+          <p className="bd-empty" role="alert">The edge board didn't load. Check that the API is up, then refresh the page.</p>
+        ) : loading ? null : !board?.game_date ? (
+          <p className="bd-empty">No upcoming games with props yet.</p>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-2">
-              {MIN_EDGES.map((m) => (
-                <Chip key={m.value} active={minEdge === m.value} onClick={() => setMinEdge(m.value)}>{m.label}</Chip>
-              ))}
-              <span className="w-px h-6 bg-slate-200 mx-1" />
-              <Chip active={market === null} onClick={() => setMarket(null)}>All markets</Chip>
-              {markets.map((m) => (
-                <Chip key={m} active={market === m} onClick={() => setMarket(m)}>{formatPropType(m)}</Chip>
-              ))}
-              <span className="w-px h-6 bg-slate-200 mx-1" />
-              <Chip active={hideLongShots} onClick={() => setHideLongShots((v) => !v)}>
-                Hide +{LONG_SHOT_ODDS} and longer
-              </Chip>
+            <div className="ed-tools">
+              <div className="ed-segs">
+                <div className="tm-seg ed-seg" role="group" aria-label="Arrange the board">
+                  <button type="button" aria-pressed={view === "edge"} onClick={() => setView("edge")}>Best edge</button>
+                  <button type="button" aria-pressed={view === "game"} onClick={() => setView("game")}>By game</button>
+                </div>
+                <div className="tm-seg ed-seg" role="group" aria-label="Odds format">
+                  <button type="button" aria-pressed={format === "american"} onClick={() => setFormat("american")}>American</button>
+                  <button type="button" aria-pressed={format === "decimal"} onClick={() => setFormat("decimal")}>Decimal</button>
+                </div>
+              </div>
+              <div className="ed-filters">
+                <Pills label="Edge">
+                  {MIN_EDGES.map((m) => (
+                    <Pill key={m.key} on={minKey === m.key} onClick={() => set("min", m.key === "0" ? null : m.key)}>{m.label}</Pill>
+                  ))}
+                </Pills>
+                <Pills label="Market">
+                  <Pill on={market === null} onClick={() => set("market", null)}>ALL</Pill>
+                  {markets.map((m) => (
+                    <Pill key={m} on={market === m} onClick={() => set("market", m)}>{(SHORT_MARKETS[m] ?? formatPropType(m)).toUpperCase()}</Pill>
+                  ))}
+                </Pills>
+                <Pill on={hideLongShots} className="ed-toggle" onClick={() => set("long", hideLongShots ? null : "hide")}>
+                  <i aria-hidden="true" />HIDE {formatPrice(LONG_SHOT_ODDS, format)} AND LONGER
+                </Pill>
+              </div>
+              <div className="ed-books">
+                <Pills label="My books">
+                  <Pill on={!mine} onClick={() => setBookList([])}>ALL</Pill>
+                  {books.map(([b, n]) => (
+                    <Pill key={b} on={myBooks.has(b)} className="ed-book" onClick={() => toggleBook(b)}
+                      title={`Prices ${n} ${n === 1 ? "side" : "sides"} on this slate`}>
+                      {formatBook(b)}<small>{n}</small>
+                    </Pill>
+                  ))}
+                </Pills>
+                <span className="ed-hint">
+                  {mine ? "Prices and edges come only from these books, on the same line" : "Best price across the consensus books"}
+                </span>
+              </div>
             </div>
 
-            <p className="text-xs text-slate-500">
-              {rows.length} of {board?.players_priced ?? 0} priced players
-              {board?.refreshing && " · refreshing prices in the background"}
-            </p>
+            <section className="bd-section" aria-labelledby="board-h">
+              <div className="bd-section-head">
+                <div className="ed-count-wrap">
+                  <h2 id="board-h" className="bd-heading">The board</h2>
+                  <div className="ed-count">
+                    <span><strong>{rows.length}</strong> of {board.players_priced} priced players</span>
+                    <span><strong>{sideCount}</strong> {sideCount === 1 ? "side" : "sides"} with edge</span>
+                    {board.refreshing && <span>Refreshing prices in the background</span>}
+                  </div>
+                </div>
+                <div className="ed-legend-wrap">
+                  <span className="bd-note">under 3%? that's mostly line shopping</span>
+                  <div className="bd-legend">
+                    <span><i className="ed-lg-puck" />Model's chance</span>
+                    <span><i className="ed-lg-mark" />Book's chance at that price</span>
+                    <span><i className="ed-lg-chip" />3% or more</span>
+                  </div>
+                </div>
+              </div>
 
-            {rows.length === 0 ? (
-              <div className="bg-white rounded-3xl shadow-lg shadow-slate-200/50 p-10 text-center text-sm text-slate-500">
-                {board?.game_date ? "No props match these filters." : "No upcoming games with props yet."}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {rows.map(({ player, edgeProps }) => (
-                  <EdgePlayerRow key={player.player_id} player={player} edgeProps={edgeProps} />
-                ))}
-              </div>
-            )}
+              {rows.length === 0 ? (
+                <p className="bd-empty">{emptyLine()}</p>
+              ) : view === "game" ? (
+                <div className="ed-list">
+                  {games.map((g) => <EdgeGameCard key={g[0].player.game_id} rows={g} teams={teams} format={format} />)}
+                </div>
+              ) : (
+                <div className="ed-list">
+                  {rows.map((r, i) => (
+                    <EdgePlayerCard key={r.player.player_id} player={r.player} edgeProps={r.edgeProps} rank={i + 1}
+                      teams={teams} format={format} myBooks={myBooks} longShot={LONG_SHOT_ODDS} />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {lead && <EdgeMath player={lead.player} prop={lead.prop} format={format} mine={mine} />}
           </>
         )}
-      </div>
+      </main>
     </div>
   );
 };

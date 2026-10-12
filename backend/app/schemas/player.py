@@ -272,7 +272,7 @@ class PlayerPropOut(BaseModel):
     # every other stored book's price for this side (PropLine rows only)
     other_books: list[PropBookPriceOut] = []
 class EdgePlayerOut(BaseModel):
-    """A player on the "players with edge" board: at least one prop side with a positive edge"""
+    """A player on the "players with edge" board: at least one prop side with a positive edge at some book's price"""
     player_id: int
     first_name: str
     last_name: str
