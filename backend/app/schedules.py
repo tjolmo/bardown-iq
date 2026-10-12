@@ -35,6 +35,7 @@ import asyncio
 import os
 from external.http import gather_bounded
 import datetime
+from zoneinfo import ZoneInfo
 
 CURRENT_TEAMS = [
         8, 7, 2, 28, 13, 12, 54, 52, 
@@ -72,9 +73,14 @@ async def add_old_teams_to_db(team_ids: list[int] = OLD_TEAMS):
             else:
                 print(f"Team history for team ID {team_id} already exists in DB, skipping.")
 
-async def fetch_current_rosters_for_all_teams():
+# the scheduled runs refetch rosters stored earlier the same day, for the day's call-ups and trades (the default day
+# keeps a restart's startup refresh from refetching them)
+SCHEDULED_ROSTER_MAX_AGE = datetime.timedelta(hours=1)
+
+async def fetch_current_rosters_for_all_teams(max_age: datetime.timedelta = datetime.timedelta(days=1)):
+    """Rosters of the teams whose roster is older than `max_age`."""
     async with AsyncSessionLocal() as db:
-        tri_codes = await get_all_tri_codes_update_roster(db)
+        tri_codes = await get_all_tri_codes_update_roster(db, max_age)
         # fetch all rosters concurrently; DB writes stay sequential (one session)
         rosters = await gather_bounded([fetch_and_clean_team_roster(tri_code, "current") for tri_code in tri_codes])
         for tri_code, roster_data in zip(tri_codes, rosters):
@@ -273,6 +279,9 @@ async def fetch_current_player_props(game_ids: list[int] | None = None):
                 continue
             if game_ids is not None and game_id not in game_ids:
                 continue
+            # PropLine keeps quoting during the game, and an in-game quote must not overwrite the pregame close
+            if game_has_started(games_by_id[game_id], start_time):
+                continue
 
             try:
                 results = await get_event_odds(event.event_id)
@@ -343,8 +352,8 @@ async def fetch_current_game_lines():
                 await store_game_lines(db, games_by_id[game_id], lines, start_time)
 
 
-# How often the nightly run retrains (env TRAIN_SCHEDULE): "weekly" (default) refits once a week on TRAIN_WEEKDAY
-# (0 = Monday, the midnight Pacific run after Sunday's games), "nightly" every night, "off" never (a frozen model; manual
+# How often the morning catch-up retrains (env TRAIN_SCHEDULE): "weekly" (default) refits once a week on TRAIN_WEEKDAY
+# (0 = Monday, the 9am ET run after Sunday's games), "nightly" every day, "off" never (a frozen model; manual
 # full refreshes still train). Features (form, ratings, starters, injuries) update from the fresh logs every night
 # either way; only the fitted weights wait, so the forward test's model_version holds for a whole week.
 TRAIN_SCHEDULES = ("nightly", "weekly", "off")
@@ -631,27 +640,57 @@ PREGAME_LOG_POLL_MINUTES = 5
 # a (re)started container logs the games starting within this window first: the startup refresh holds the pipeline
 # lock for longer than the polls' window, and a pre-game prediction can't be logged after puck drop
 STARTUP_LOG_LEAD = datetime.timedelta(hours=2)
-# games the pre-game log already ran for in this process, so a game whose log fails isn't refetched every poll
+# a pre-game log whose prediction log step failed is retried on the next polls, up to this many runs per game
+PREGAME_LOG_MAX_TRIES = 3
+# games the pre-game log is done with in this process (logged, or out of tries), so a game isn't refetched every poll
 _pregame_log_attempted: set[int] = set()
+_pregame_log_failures: dict[int, int] = {}
+# the closing snapshot: PropLine's last pregame quotes (its close for the scorer and CLV) and ESPN's game prices, this
+# long before puck drop; the polls take it between 10 and 5 minutes out
+CLOSE_SNAPSHOT_LEAD = datetime.timedelta(minutes=10)
+_close_snapshot_taken: set[int] = set()
+
+EASTERN = ZoneInfo("America/New_York")
+# the slate window: news and lines are polled more often from noon ET until the day's last puck drop (a late West
+# Coast start can run past midnight ET)
+SLATE_START_HOUR_ET = 12
+SLATE_END_HOUR_ET = 4
 
 def due_for_pregame_log(games, now: datetime.datetime, lead: datetime.timedelta) -> list[int]:
     """Ids of the games that haven't started and start within `lead` of `now`."""
     return [g.id for g in games if g.start_time is not None and not game_has_started(g, now)
             and as_utc_time(g.start_time) - now <= lead]
 
+async def todays_games(now: datetime.datetime) -> list:
+    async with AsyncSessionLocal() as db:
+        return await get_all_games_for_date(db, int(current_game_day(now).strftime("%Y%m%d"))) or []
+
+def in_slate_hours(now: datetime.datetime) -> bool:
+    hour = now.astimezone(EASTERN).hour
+    return hour >= SLATE_START_HOUR_ET or hour < SLATE_END_HOUR_ET
+
+async def slate_active(now: datetime.datetime | None = None) -> bool:
+    """True from noon ET while one of the game day's games hasn't started yet."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if not in_slate_hours(now):
+        return False
+    return any(not game_has_started(g, now) for g in await todays_games(now))
+
 async def games_due_for_pregame_log(lead: datetime.timedelta, now: datetime.datetime | None = None) -> list[int]:
     """Today's games starting within `lead` that the current model hasn't logged yet."""
     from predictions.prediction_log import unlogged_game_ids
     now = now or datetime.datetime.now(datetime.timezone.utc)
+    due = due_for_pregame_log(await todays_games(now), now, lead)
+    if not due:
+        return []
     async with AsyncSessionLocal() as db:
-        games = await get_all_games_for_date(db, int(current_game_day(now).strftime("%Y%m%d"))) or []
-        due = due_for_pregame_log(games, now, lead)
-        return await unlogged_game_ids(db, due) if due else []
+        return await unlogged_game_ids(db, due)
 
-async def pregame_log_pipeline(game_ids: list[int]):
+async def pregame_log_pipeline(game_ids: list[int]) -> bool:
     """The forward test's log for the games about to start. Starting goalies and the injury report go first so the
     predictions logged after them use the announced starters and drop injured players from the expected lineups;
-    then the game day's ESPN prices and PropLine's props for just these games (one request each)."""
+    then the game day's ESPN prices and PropLine's props for just these games (one request each). Returns whether
+    the prediction log step succeeded."""
     day = current_game_day()
     await run_step("starting goalies", fetch_confirmed_starters)
     await run_step("injury report", fetch_injury_report)
@@ -660,30 +699,90 @@ async def pregame_log_pipeline(game_ids: list[int]):
     # every book's props and game lines from PropLine (the prediction log's fallback when ESPN has no line)
     await run_step("props", lambda: fetch_current_player_props(game_ids))
     # freezes these games' predictions next to the market snapshot just fetched (forward test)
-    await run_step("prediction log", lambda: log_todays_predictions(game_ids))
+    logged = await run_step("prediction log", lambda: log_todays_predictions(game_ids))
     # after the log, so the forward test never waits on it
     await run_step("edge board", warm_edge_board)
+    return logged
 
 async def log_games_about_to_start():
     """Runs every PREGAME_LOG_POLL_MINUTES: the pre-game log for games starting within PREGAME_LOG_LEAD. A busy
-    pipeline lock only delays it to the next poll; each game gets one run per process."""
+    pipeline lock only delays it to the next poll. A game is done once its log step succeeds; a failed log step is
+    retried on the next polls (until puck drop or PREGAME_LOG_MAX_TRIES runs)."""
     from . import refresh
     due = [g for g in await games_due_for_pregame_log(PREGAME_LOG_LEAD) if g not in _pregame_log_attempted]
     if not due:
         return
-    if await refresh.run_exclusive("pregame log", lambda: pregame_log_pipeline(due)):
+    outcome = {}
+    async def run():
+        outcome["logged"] = await pregame_log_pipeline(due)
+    if not await refresh.run_exclusive("pregame log", run):
+        return
+    if outcome.get("logged"):
         _pregame_log_attempted.update(due)
+        return
+    for game_id in due:
+        _pregame_log_failures[game_id] = _pregame_log_failures.get(game_id, 0) + 1
+        if _pregame_log_failures[game_id] >= PREGAME_LOG_MAX_TRIES:
+            _pregame_log_attempted.add(game_id)
+    print(f"Pregame log failed for {due}; tries so far: {[_pregame_log_failures[g] for g in due]}")
 
-async def morning_odds_pipeline():
-    """A late-morning (ET) snapshot: starting goalies, the injury report and prices, so the price path has an early
-    point between the open and the pre-game log, and the edge board prices with the morning's starters. ESPN, plus
-    PropLine's props (about 30 of its 1,000 daily requests)."""
+async def close_snapshot_pipeline(game_ids: list[int]):
+    """The last pregame prices of the games about to start: ESPN's game odds for the day and PropLine's props and game
+    lines for just these games (one request each). No prediction log; ESPN's prop close comes with the nightly run."""
+    day = current_game_day()
+    await run_step("game odds", lambda: fetch_game_odds_for_range(day, day))
+    await run_step("props", lambda: fetch_current_player_props(game_ids))
+
+async def snapshot_games_about_to_start(now: datetime.datetime | None = None):
+    """Runs every PREGAME_LOG_POLL_MINUTES: the closing snapshot for games starting within CLOSE_SNAPSHOT_LEAD, once
+    per game per process (a busy lock only delays it to the next poll)."""
+    from . import refresh
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    due = [g for g in due_for_pregame_log(await todays_games(now), now, CLOSE_SNAPSHOT_LEAD)
+           if g not in _close_snapshot_taken]
+    if due and await refresh.run_exclusive("closing snapshot", lambda: close_snapshot_pipeline(due)):
+        _close_snapshot_taken.update(due)
+
+async def daytime_odds_pipeline():
+    """The 11:00, 13:30 and 16:30 ET runs: the day's call-ups, starting goalies (confirmed after the morning skates),
+    the injury report and prices, so the edge board follows the day's news between the nightly run and the pre-game
+    log. ESPN, plus PropLine's props (about 30 of its 1,000 daily requests per run)."""
+    await run_step("rosters", lambda: fetch_current_rosters_for_all_teams(SCHEDULED_ROSTER_MAX_AGE))
     await run_step("starting goalies", fetch_confirmed_starters)
     await run_step("injury report", fetch_injury_report)
     await run_step("game odds", fetch_recent_game_odds)
     await run_step("player prop odds", fetch_recent_player_prop_odds)
     await run_step("props", fetch_current_player_props)
     await run_step("edge board", warm_edge_board)
+
+async def refresh_game_day_news(now: datetime.datetime | None = None):
+    """Runs on the hour and half hour: starting goalies (and, on the hour, the injury report) while the slate is
+    active, so a confirmation or scratch reaches the predictions within 30 minutes. ESPN and NHL only, no PropLine."""
+    from . import refresh
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if refresh.is_running() or not await slate_active(now):
+        return
+    async def news():
+        await run_step("starting goalies", fetch_confirmed_starters)
+        # hourly: every run appends a full snapshot of the report
+        if now.minute < 30:
+            await run_step("injury report", fetch_injury_report)
+    await refresh.run_exclusive("game-day news", news)
+
+# off the slate the game lines are fetched hourly; during it every 15 minutes
+GAME_LINES_HOURLY = datetime.timedelta(minutes=55)
+_game_lines_fetched_at: datetime.datetime | None = None
+
+async def fetch_game_lines_on_schedule(now: datetime.datetime | None = None):
+    """Runs every 15 minutes: the bulk game lines while the slate is active, else once an hour (about 55 of PropLine's
+    1,000 daily requests)."""
+    global _game_lines_fetched_at
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    hourly_due = _game_lines_fetched_at is None or now - _game_lines_fetched_at >= GAME_LINES_HOURLY
+    if not hourly_due and not await slate_active(now):
+        return
+    _game_lines_fetched_at = now
+    await fetch_current_game_lines()
 
 async def warm_edge_board():
     """Reprices the players-with-edge board right after a props fetch, so visitors get fresh prices without waiting."""
@@ -707,18 +806,42 @@ async def score_logged_predictions():
     async with AsyncSessionLocal() as db:
         print(f"Prediction scores: {await score_predictions(db)}")
 
+# a daily pipeline that hasn't completed for this long (the machine slept or Docker hung through its run and its
+# misfire grace) is run by the overdue check; a fresh process counts from its start (its startup refresh)
+OVERDUE_AFTER = datetime.timedelta(hours=26)
+_process_started_at = datetime.datetime.now(datetime.timezone.utc)
+_last_completed: dict[str, datetime.datetime] = {}
+
+def mark_completed(name: str, now: datetime.datetime | None = None):
+    _last_completed[name] = now or datetime.datetime.now(datetime.timezone.utc)
+
+def is_overdue(name: str, now: datetime.datetime | None = None) -> bool:
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return now - _last_completed.get(name, _process_started_at) > OVERDUE_AFTER
+
+async def run_overdue_pipelines():
+    """Runs every 15 minutes: the nightly run or the morning catch-up when one hasn't completed in OVERDUE_AFTER
+    (one per check, and only when no pipeline is running)."""
+    from . import refresh
+    for name, pipeline in (("nightly", nightly_pipeline), ("catch-up", catchup_pipeline)):
+        if is_overdue(name):
+            await refresh.run_exclusive(f"{name} (overdue)", pipeline)
+            return
+
+def before_slate(now: datetime.datetime | None = None) -> bool:
+    """Before noon ET: training then can't change model_version in the middle of a slate's pre-game logs."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return SLATE_END_HOUR_ET <= now.astimezone(EASTERN).hour < SLATE_START_HOUR_ET
+
 async def nightly_pipeline():
     """Runs the nightly jobs in dependency order: schedules and rosters first (new games and players),
-    then game logs (and the skater shares stored from them), then props (which need games and rosters), and finally
-    training (which needs the fresh logs)."""
+    then game logs (and the skater shares stored from them), then props (which need games and rosters). Training
+    waits for the morning catch-up, which has MoneyPuck's late games."""
     await run_step("schedules", fetch_current_schedules_for_all_teams)
-    await run_step("rosters", fetch_current_rosters_for_all_teams)
-    logs_ok = await run_step("player logs", scrape_all_player_logs)
-    logs_ok = await run_step("team stats", scrape_team_stats) and logs_ok
+    await run_step("rosters", lambda: fetch_current_rosters_for_all_teams(SCHEDULED_ROSTER_MAX_AGE))
+    await run_step("player logs", scrape_all_player_logs)
+    await run_step("team stats", scrape_team_stats)
     await run_step("skater shares", refresh_skater_shares)
-    if not logs_ok:
-        # models trained on a partial log load would be wrong, so keep yesterday's models this run
-        print("Skipping training: player log scrape failed")
     # who actually started last night's games (training labels the goalie model's rows and the starter features with these)
     await run_step("actual starters", fetch_recent_actual_starters)
     # who dressed, who sat and the lines each team used (the roster page's projected lines)
@@ -728,10 +851,30 @@ async def nightly_pipeline():
     # after the fetches above captured last night's closing prices and the logs scrape brought the box scores
     await run_step("prediction scoring", score_logged_predictions)
     await run_step("props", fetch_current_player_props)
-    if logs_ok and (should_train_tonight() or models_missing()):
-        await run_step("training", train_models)
-    elif logs_ok:
+    mark_completed("nightly")
+
+async def catchup_pipeline():
+    """9am ET: a second pass over last night's games, for whatever MoneyPuck and the NHL hadn't posted by the nightly
+    run (late West Coast games), then the day's schedule changes and call-ups, and training (per TRAIN_SCHEDULE) on
+    the complete logs. Every step is an idempotent upsert, so a night the nightly run already got changes nothing."""
+    await run_step("schedules", fetch_current_schedules_for_all_teams)
+    await run_step("rosters", lambda: fetch_current_rosters_for_all_teams(SCHEDULED_ROSTER_MAX_AGE))
+    logs_ok = await run_step("player logs", scrape_all_player_logs)
+    logs_ok = await run_step("team stats", scrape_team_stats) and logs_ok
+    await run_step("skater shares", refresh_skater_shares)
+    await run_step("actual starters", fetch_recent_actual_starters)
+    await run_step("game lineups", fetch_recent_game_lineups)
+    await run_step("prediction scoring", score_logged_predictions)
+    if not logs_ok:
+        # models trained on a partial log load would be wrong, so keep the current models this run
+        print("Skipping training: player log scrape failed")
+    elif not (should_train_tonight() or models_missing()):
         print(f"Skipping training: TRAIN_SCHEDULE={train_schedule()} (bundles kept, model_version unchanged)")
+    elif not before_slate():
+        print("Skipping training: a late catch-up must not change model_version during the slate")
+    else:
+        await run_step("training", train_models)
+    mark_completed("catch-up")
 
 async def full_refresh():
     """Refreshes everything: teams, schedules, rosters, game logs, live scores, props and models.

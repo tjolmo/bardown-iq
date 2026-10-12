@@ -11,11 +11,18 @@ from . import refresh
 from .database import AsyncSessionLocal
 from .schedules import (add_current_teams_to_db, add_old_teams_to_db, fetch_current_rosters_for_all_teams, 
                         fetch_current_schedules_for_all_teams, scrape_all_player_logs, scrape_team_stats,
-                        fetch_current_scores, fetch_current_game_lines, nightly_pipeline, morning_odds_pipeline,
-                        fetch_game_day_lineups, log_games_about_to_start, games_due_for_pregame_log,
-                        pregame_log_pipeline, STARTUP_LOG_LEAD, PREGAME_LOG_POLL_MINUTES)
+                        fetch_current_scores, fetch_game_lines_on_schedule, nightly_pipeline, catchup_pipeline,
+                        daytime_odds_pipeline, refresh_game_day_news, run_overdue_pipelines,
+                        fetch_game_day_lineups, log_games_about_to_start, snapshot_games_about_to_start,
+                        games_due_for_pregame_log, pregame_log_pipeline, STARTUP_LOG_LEAD, PREGAME_LOG_POLL_MINUTES)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from external.nhl.games import live_poll_minutes
+
+PACIFIC = "America/Los_Angeles"
+EASTERN = "America/New_York"
+# how late a daily cron run may still start (e.g. after the machine wakes up); later than that the overdue check runs it
+DAILY_GRACE = 6 * 3600
+DAYTIME_GRACE = 2 * 3600
 
 def scheduler_enabled() -> bool:
     """SCHEDULER_ENABLED=0 turns off every scheduled job and the startup refresh (a dev container sharing the
@@ -76,24 +83,43 @@ async def lifespan(app: FastAPI):
         warm.cancel()
         await engine.dispose()
         return
-    # one ordered nightly job instead of independent 03:00/04:00 jobs that raced each other
-    # run through the shared lock so the nightly run never overlaps a startup or manual refresh
+    # every cron job names its timezone: the container runs on UTC, and ET/PT times must follow the clock changes.
+    # The daily pipelines go through the shared lock and wait for it (run_when_free) instead of being dropped when a
+    # startup, manual refresh or training run holds it; a run missed by more than its grace (the machine slept)
+    # is picked up by the overdue check.
     # midnight Pacific, after the last West Coast game has ended (07:00 UTC in summer time, 08:00 in winter)
-    scheduler.add_job(refresh.run_exclusive, args=["nightly", nightly_pipeline], trigger="cron", hour=0, timezone="America/Los_Angeles", max_instances=1, coalesce=True, misfire_grace_time=3600)
+    scheduler.add_job(refresh.run_when_free, args=["nightly", nightly_pipeline], trigger="cron", hour=0,
+                      timezone=PACIFIC, max_instances=1, coalesce=True, misfire_grace_time=DAILY_GRACE)
+    # 9am ET: last night's late games again (MoneyPuck, starters, lineups, scoring), the day's schedule changes and
+    # call-ups, and the weekly training on the complete logs
+    scheduler.add_job(refresh.run_when_free, args=["catch-up", catchup_pipeline], trigger="cron", hour=9,
+                      timezone=EASTERN, max_instances=1, coalesce=True, misfire_grace_time=DAILY_GRACE)
+    # 11:00, 13:30 and 16:30 ET: call-ups, starting goalies, injuries, ESPN prices and PropLine props, edge board
+    for name, hour, minute in (("morning odds", 11, 0), ("midday odds", 13, 30), ("afternoon odds", 16, 30)):
+        scheduler.add_job(refresh.run_when_free, args=[name, daytime_odds_pipeline],
+                          kwargs={"max_wait": datetime.timedelta(hours=1)}, trigger="cron", hour=hour, minute=minute,
+                          timezone=EASTERN, max_instances=1, coalesce=True, misfire_grace_time=DAYTIME_GRACE)
+    # on the hour and half hour while the slate is active: starting goalies (and hourly the injury report)
+    scheduler.add_job(refresh_game_day_news, trigger="cron", minute="0,30", timezone="UTC", max_instances=1, coalesce=True)
+    # the nightly run or the catch-up, if one hasn't completed in 26 hours
+    scheduler.add_job(run_overdue_pipelines, trigger="cron", minute="*/15", timezone="UTC", max_instances=1, coalesce=True)
     # LIVE_SCORES_POLL_MINUTES (default 10); the job only calls the NHL API while a game is about to start or under way
     scheduler.add_job(fetch_current_scores, trigger="interval", minutes=live_poll_minutes(), max_instances=1, coalesce=True)
     # lineups and scratches as the NHL posts them before puck drop, and the lines used once a game ends; also only
     # calls the NHL API around games
     scheduler.add_job(fetch_game_day_lineups, trigger="interval", minutes=live_poll_minutes(), max_instances=1, coalesce=True)
-    # the site's live moneylines: one bulk PropLine request (48 of the free tier's 1,000 a day)
-    # (first run at startup, not 30 minutes in)
-    scheduler.add_job(fetch_current_game_lines, trigger="interval", minutes=30, max_instances=1, coalesce=True,
-                      next_run_time=datetime.datetime.now(datetime.timezone.utc))
+    # the site's live moneylines: one bulk PropLine request every 15 minutes during the slate, hourly otherwise
+    # (about 55 of the free tier's 1,000 a day; first run at startup)
+    scheduler.add_job(fetch_game_lines_on_schedule, trigger="cron", minute="*/15", timezone="UTC", max_instances=1,
+                      coalesce=True, next_run_time=datetime.datetime.now(datetime.timezone.utc))
     # the forward test's prediction log, ~30 minutes before each game: starters, injuries and prices for the games
     # about to start, then the log; no API call when no game is due
     scheduler.add_job(log_games_about_to_start, trigger="interval", minutes=PREGAME_LOG_POLL_MINUTES, max_instances=1, coalesce=True)
-    # 15:00 UTC (late morning ET): starters, injuries and an earlier point on the odds price path (ESPN, and PropLine's props)
-    scheduler.add_job(refresh.run_exclusive, args=["morning odds", morning_odds_pipeline], trigger="cron", hour=15, max_instances=1, coalesce=True, misfire_grace_time=3600)
+    # the closing snapshot, 5-10 minutes before each game: PropLine's last pregame quotes and ESPN's game prices
+    # (offset half a poll from the pre-game log so the two don't land on the lock at the same moment)
+    scheduler.add_job(snapshot_games_about_to_start, trigger="interval", minutes=PREGAME_LOG_POLL_MINUTES, max_instances=1,
+                      coalesce=True, next_run_time=datetime.datetime.now(datetime.timezone.utc)
+                      + datetime.timedelta(minutes=PREGAME_LOG_POLL_MINUTES / 2))
     scheduler.start()
     refresh.start_in_background("startup", run_startup_refresh)
 
