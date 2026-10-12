@@ -20,7 +20,7 @@ One compose file, one database. The services:
 | `db` | `postgres_db` | `localhost:5433` | Postgres 15; data in `./postgres_data` |
 | `backend` | `fastapi_backend` | http://localhost:8002 (API docs at `/docs`) | This checkout's code, live-reloaded. Serves the site. Runs no scheduled jobs (`SCHEDULER_ENABLED=0`) |
 | `frontend` | `react_frontend` | http://localhost:5174 | The site, live-reloaded |
-| `forward` | `fwd_fastapi_backend` | http://localhost:8004 | The frozen forward test: runs every scheduled job (fetching, prediction log, scoring, weekly training) |
+| `forward` | `fwd_fastapi_backend` | http://localhost:8004 | The frozen forward test: runs every scheduled job (fetching, prediction log, scoring) |
 
 The two backends share the database, so only one of them may run the scheduled jobs. The forward container always
 does; set `DEV_SCHEDULER_ENABLED=1` in `.env` only if you take the forward container down and want the dev
@@ -30,8 +30,10 @@ backend to do the fetching instead.
 
 The forward test's point is a model that doesn't change under it, so its code is baked into the image
 `nhl-fwd-backend` (no bind mount, no `--reload`) and `docker compose up --build` never rebuilds it. Its model
-bundles live in the `nhl-fwd_fwd_models` volume and are retrained every Monday in the 9am ET catch-up run (`TRAIN_SCHEDULE=weekly`,
-`TRAIN_WEEKDAY=0`); each training makes a new `model_version` that the prediction log records.
+bundles live in the `nhl-fwd_fwd_models` volume and are not retrained on a schedule (`TRAIN_SCHEDULE=off`), so the
+forward test evaluates one fixed `model_version`. Retraining is deliberate: set `TRAIN_SCHEDULE: weekly` on the
+service (it then trains in the Monday 9am ET catch-up) or run a manual full refresh; each training makes a new
+`model_version` that the prediction log records, which starts a new evaluation window.
 
 To move it to new code, commit first (the commit is printed at startup and is how a `model_version` is traced
 back), then:
