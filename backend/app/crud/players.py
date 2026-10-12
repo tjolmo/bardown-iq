@@ -1,5 +1,3 @@
-from app.models import GoalieGameLog
-from app.models import SkaterGameLog
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -140,37 +138,6 @@ async def get_player_current_team_tri_code(db: AsyncSession, player_id: int) -> 
     )
     player_tri_code = result.scalar_one_or_none()
     return player_tri_code
-
-async def get_top_n_skaters(db: AsyncSession, n: int, season: int) -> list[Player]:
-    """Fetches the top n skaters based on points from the database."""
-    result = await db.execute(
-        select(Player).where(
-            Player.position != "G",
-            Player.current_team_tri_code != None
-        )
-        .join(SkaterGameLog, SkaterGameLog.player_id == Player.id)
-        .where(SkaterGameLog.season == season) 
-        .group_by(Player.id)
-        .order_by(func.sum(SkaterGameLog.points).desc())
-        .limit(n)
-    )
-    return result.scalars().all()
-
-async def get_top_n_goalies(db: AsyncSession, n: int, season: int) -> list[Player]:
-    """Fetches the top n goalies based on sv% from the database."""
-    result = await db.execute(
-        select(Player).where(
-            Player.position == "G",
-            Player.current_team_tri_code != None
-        )
-        .join(GoalieGameLog, GoalieGameLog.player_id == Player.id)
-        .where(GoalieGameLog.season == season) 
-        .group_by(Player.id)
-        .order_by(1-(func.sum(GoalieGameLog.goals_against)/func.sum(GoalieGameLog.sog)).desc())
-        .having(func.count(GoalieGameLog.player_id) >= 5)
-        .limit(n)
-    )
-    return result.scalars().all()
 
 async def get_players_on_teams(db: AsyncSession, tri_codes: list[str]) -> list[Player]:
     """Fetches all players currently on any of the given teams."""

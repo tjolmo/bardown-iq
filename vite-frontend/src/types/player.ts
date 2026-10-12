@@ -29,9 +29,60 @@ export interface PlayerFullData {
 
 export type Position = "C" | "L" | "R" | "D" | "G" | "U";
 
-export interface PlayerCardProps {
-    player: PlayerFullData;
-    index: number;
+// The leaderboards: a player's identity and season totals, ranked on the stat asked for
+export interface TopPlayer {
+    id: number;
+    headshot: string | null;
+    first_name: string;
+    last_name: string;
+    current_team_tri_code: string;
+    position: Position;
+    number: number | null;
+    shoots_catches: "L" | "R" | "U";
+    games: number;
+}
+
+export interface TopSkater extends TopPlayer {
+    goals: number;
+    assists: number;
+    points: number;
+    points_per_game: number;
+    x_goals: number;
+    shots_on_goal: number;
+    toi_per_game: number;       // minutes
+    pp_points: number;
+    points_by_game: number[];   // in game order
+}
+
+export interface TopGoalie extends TopPlayer {
+    shots_faced: number;
+    goals_against: number;
+    x_goals_against: number;
+    save_percentage: number | null;
+    gaa: number | null;
+    gsax: number;               // goals saved above expected
+    high_danger_shots: number;
+}
+
+export type SkaterSort = "points" | "goals" | "assists" | "points_per_game" | "x_goals" | "pp_points";
+export type GoalieSort = "gsax" | "save_percentage" | "gaa" | "shots_faced";
+export type PositionFilter = "all" | "F" | "D";
+
+interface TopBoard {
+    season: number;
+    through: string | null;     // "2026-10-09", the latest game logged this season
+}
+
+export interface TopSkatersBoard extends TopBoard {
+    sort: SkaterSort;
+    position: PositionFilter;
+    skaters: TopSkater[];
+}
+
+export interface TopGoaliesBoard extends TopBoard {
+    sort: GoalieSort;
+    min_games: number;
+    goalies: TopGoalie[];
 }
 
 export interface SearchPlayerResult {

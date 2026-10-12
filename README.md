@@ -152,6 +152,16 @@ edge against the moneyline. The standings come from NHL's `standings/now` feed, 
 and not stored; while the feed is down the last good standings are served (`stale: true`), and a team whose line
 is missing still lists with its next game. Nothing is scheduled for it.
 
+## The leaderboards
+
+`GET /players/top_players/skaters/{season}/{n}` and `GET /players/top_players/goalies/{season}/{n}` serve the top
+skaters and top goalies pages: the n rostered players with the best season on the stat asked for (`sort`), every one
+with its season totals summed from the MoneyPuck game logs. Skaters rank on points, goals, assists, points a game,
+expected goals or power-play points, narrowed to forwards or defence with `position`; goalies rank on goals saved
+above expected (expected goals against minus goals against), save percentage, GAA or shots faced, among those with
+at least `min_games` games (two by default, so a one-game shutout doesn't top the board in October). The season is a
+start year or `current`, and the answer says the latest game it covers (`through`).
+
 ## Lines, injuries and scratches
 
 `GET /teams/{tri_code}/lineup` serves the roster page: the team's next game, its forward lines, defense pairs,
