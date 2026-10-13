@@ -5,7 +5,7 @@
 #   docker compose down                 # stop everything (the database files and model bundles are kept)
 #   docker compose logs -f forward      # follow one service
 #
-# Only the forward container runs the scheduler (fetching, the prediction log, scoring, weekly training); the dev
+# Only the forward container runs the scheduler (fetching, the prediction log, scoring); the dev
 # backend has SCHEDULER_ENABLED=0 so the two never fetch, score or log twice into the same database.
 #
 # The forward test stays frozen: its service has no build section, so `up --build` and code edits never touch it.
@@ -94,11 +94,12 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN}
       SCHEDULER_ENABLED: "1"
       LIVE_SCORES_POLL_MINUTES: ${LIVE_SCORES_POLL_MINUTES:-10}
-      TRAIN_SCHEDULE: weekly
-      TRAIN_WEEKDAY: "0"
+      # frozen weights for evaluation: one model_version for the whole forward test window. Retrain deliberately
+      # (set weekly here, or a manual full refresh) to start a new window
+      TRAIN_SCHEDULE: "off"
 
 volumes:
-  # the forward test's fitted (and weekly retrained) models; the volume predates this file, hence the name
+  # the forward test's fitted models; the volume predates this file, hence the name
   fwd_models:
     external: true
     name: nhl-fwd_fwd_models

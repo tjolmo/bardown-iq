@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import type { GoalieSort, PositionFilter, SkaterSort, TopGoaliesBoard, TopSkatersBoard } from "../types/player";
 import type { TeamLookup } from "../types/teams";
 import { getTopGoalies, getTopSkaters } from "../api/player";
-import { getTeams } from "../api/teams";
+import { getTeamLookup } from "../api/teams";
 
 interface TopPlayersState<T> {
   data: T | null;
@@ -10,13 +10,6 @@ interface TopPlayersState<T> {
   loading: boolean;
   error: Error | null;
 }
-
-// the teams list only names and logos the rows; without it the page still shows, on tricodes
-let teamsOnce: Promise<TeamLookup> | null = null;
-const loadTeams = (): Promise<TeamLookup> =>
-  (teamsOnce ??= getTeams()
-    .then((teams) => Object.fromEntries(teams.map((t) => [t.tricode, t])))
-    .catch(() => ({})));
 
 function useBoard<T>(load: () => Promise<T>, deps: unknown[]): TopPlayersState<T> {
   const [data, setData] = useState<T | null>(null);
@@ -28,7 +21,7 @@ function useBoard<T>(load: () => Promise<T>, deps: unknown[]): TopPlayersState<T
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([load(), loadTeams()])
+    Promise.all([load(), getTeamLookup()])
       .then(([board, lookup]) => {
         if (cancelled) return;
         setData(board);

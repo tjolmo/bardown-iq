@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app import edge_board as E
 from app.models import Base, Games, Player, PlayerPropOdds, Props
+from app.schemas.player import PropBookPriceOut
 
 NOW = datetime.datetime(2026, 10, 8, 21, 0, tzinfo=datetime.timezone.utc)
 LATER = NOW + datetime.timedelta(hours=2)
@@ -72,6 +73,55 @@ def test_keeps_players_with_a_positive_edge_best_first(monkeypatch):
     # every priced prop comes along, edges first
     assert len(top["props"]) == 2 and top["props"][1].edge < 0
     assert board["players"][1]["opponent"] == "TOR" and board["players"][1]["home"] is False
+
+
+def test_keeps_a_player_whose_only_edge_is_at_another_book(monkeypatch):
+    g = GAME_IDS[0]
+    fake_predictions(monkeypatch, {1: {"points": 0.7}, 2: {"points": 0.7}})
+    real_board = E.get_player_prop_board
+
+    async def with_other_books(db, pid):
+        props = await real_board(db, pid)
+        for p in props:
+            if p.over_under == "Over":
+                # player 1: Novig's +110 on the same line beats the consensus -110; player 2: only on another line
+                p.other_books = [PropBookPriceOut(book="novig", odds=110, line=0.5 if pid == 1 else 1.5, consensus=False)]
+        return props
+    monkeypatch.setattr(E, "get_player_prop_board", with_other_books)
+    board = run([game(g, 20261008, LATER), player(1), player(2),
+                 prop(g, 1, "Over", -110), prop(g, 2, "Over", -110)])    # 0.503 at 1.909: -4%; at 2.10: +5.6%
+    assert [p["player_id"] for p in board["players"]] == [1]
+    # best_edge stays the edge at the shown price
+    assert board["players"][0]["best_edge"] < 0 and board["players_priced"] == 2
+
+
+def test_prizepicks_placeholder_price_is_not_an_edge():
+    from app.schemas.player import PlayerPropOut
+    side = PlayerPropOut(game_id=1, player_id=1, prop_type="player_points", over_under="Over", odds=-110, line=0.5,
+                         model_prob=0.55, other_books=[
+                             PropBookPriceOut(book="prizepicks", odds=100, line=0.5, consensus=False, pick_app=True,
+                                              priced=False)])
+    # 0.55 at +100 would be +10%; +100 is PrizePicks' placeholder, so the edge stays the -110's: 0.55 * 1.909 - 1
+    assert round(E.best_price_edge(side), 3) == 0.05
+    assert E.pickem_pick(side) and not E.pickem_pick(side.model_copy(update={"model_prob": 0.45}))
+
+
+def test_keeps_a_prizepicks_pick_the_model_likes(monkeypatch):
+    g = GAME_IDS[0]
+    # P(points >= 1): 1.2 -> 0.699 (Under 0.301), 0.4 -> 0.330 (Over below a coin flip)
+    fake_predictions(monkeypatch, {1: {"points": 1.2}, 2: {"points": 0.4}})
+    real_board = E.get_player_prop_board
+
+    async def with_prizepicks(db, pid):
+        props = await real_board(db, pid)
+        for p in props:
+            p.other_books = [PropBookPriceOut(book="prizepicks", odds=100, line=0.5, consensus=False, pick_app=True,
+                                              priced=False)]
+        return props
+    monkeypatch.setattr(E, "get_player_prop_board", with_prizepicks)
+    # no edge at -300 for either (0.699 * 1.333 = 0.93; 0.330 * 1.333): player 1 is kept for his 70% PrizePicks pick
+    board = run([game(g, 20261008, LATER), player(1), player(2), prop(g, 1, "Over", -300), prop(g, 2, "Over", -300)])
+    assert [p["player_id"] for p in board["players"]] == [1] and board["players"][0]["best_edge"] < 0
 
 
 def test_next_slate_skips_started_and_finished_games(monkeypatch):

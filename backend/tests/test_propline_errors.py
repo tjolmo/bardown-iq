@@ -77,7 +77,8 @@ def test_event_odds_requests_listed_markets_and_books(monkeypatch):
     run_with_transport(monkeypatch, handler, lambda: mod.get_event_odds("e1"))
     params = calls[-1].url.params
     assert params["markets"] == "h2h,spreads,totals,goalie_saves,player_hits,player_points"
-    assert "draftkings" in params["bookmakers"] and "prizepicks" not in params["bookmakers"]
+    # the sportsbooks and, for the other-books list, Fliff and the pick apps
+    assert {"draftkings", "fliff", "prizepicks", "underdog", "sleeper"} <= set(params["bookmakers"].split(","))
 
 
 def test_event_odds_falls_back_to_documented_markets(monkeypatch):

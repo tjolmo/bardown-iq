@@ -3,6 +3,7 @@ import type { FC, ReactNode } from "react";
 interface Meter {
   value: number;          // 0..1 along the track: the puck
   mark?: number;          // 0..1: a dashed comparison mark (the book's chance, the season)
+  gap?: boolean;          // shade the ice between the puck and the mark: blue when the puck is ahead, red when behind
   scale?: [string, string, string];
   aria: string;
 }
@@ -18,8 +19,12 @@ interface ModelTileProps {
 const at = (x: number) => `${Math.max(0, Math.min(1, x)) * 100}%`;
 
 /** A small rink-style track: a puck at the value, filled up to it unless a comparison mark is drawn instead. */
-export const OddsMeter: FC<Meter> = ({ value, mark, aria }) => (
+export const OddsMeter: FC<Meter> = ({ value, mark, gap, aria }) => (
   <div className="pl-odds" role="img" aria-label={aria}>
+    {mark !== undefined && gap && (
+      <i className={`pl-odds-gap${value > mark ? " pl-odds-ahead" : ""}`}
+        style={{ left: at(Math.min(value, mark)), width: `calc(${at(Math.max(value, mark))} - ${at(Math.min(value, mark))})` }} />
+    )}
     {mark === undefined && <i className="pl-odds-fill" style={{ width: at(value) }} />}
     {mark === undefined && <i className="pl-odds-half" />}
     {mark !== undefined && <i className="pl-odds-mark" style={{ left: at(mark) }} />}

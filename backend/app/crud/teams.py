@@ -27,8 +27,9 @@ async def check_tri_code_exists(db: AsyncSession, tri_code: str) -> bool:
     team = result.scalar_one_or_none()
     return team is not None
 
-async def get_all_tri_codes_update_roster(db: AsyncSession) -> list[str]:
-    """Tri codes of active teams whose roster was last updated more than a day ago. Active = has a game in the
+async def get_all_tri_codes_update_roster(db: AsyncSession,
+                                         max_age: datetime.timedelta = datetime.timedelta(days=1)) -> list[str]:
+    """Tri codes of active teams whose roster was last updated more than `max_age` ago. Active = has a game in the
     last year or scheduled: relocated teams (ATL, PHX, ARI) stay in the table for old games but have no roster to
     fetch (the NHL returns 404), and their roster_last_updated is never set, so they were retried every run."""
     since = int((datetime.date.today() - datetime.timedelta(days=365)).strftime("%Y%m%d"))
@@ -38,7 +39,7 @@ async def get_all_tri_codes_update_roster(db: AsyncSession) -> list[str]:
         select(Team.tri_code).where(
             or_(
                 Team.roster_last_updated.is_(None),
-                Team.roster_last_updated < datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)
+                Team.roster_last_updated < datetime.datetime.now(datetime.timezone.utc) - max_age
             ),
             Team.tri_code.in_(active),
         )

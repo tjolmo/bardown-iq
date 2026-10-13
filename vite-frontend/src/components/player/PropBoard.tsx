@@ -3,7 +3,7 @@ import type { PlayerPropData } from "../../types/player";
 import { formatBook } from "../../utils/books";
 import { americanOdds, impliedProb, pct, signed } from "../../utils/playerStats";
 import { STRONG_EDGE_POINTS } from "../rinkboard/EdgeChip";
-import { formatPropType } from "./PlayerPropCard";
+import { formatPropType } from "../../utils/propMarkets";
 import { OddsMeter } from "./ModelTile";
 
 const sideName = (side: string) => {
@@ -73,8 +73,10 @@ export const PropBoard: FC<{ props: PlayerPropData[] }> = ({ props }) => {
                 {books.map((b) => (
                   <li key={`${b.book}-${b.line}`} title={b.consensus ? undefined : "Not part of the consensus price"}>
                     <span>{formatBook(b.book)}{b.line !== p.line && !yes ? ` · ${b.line}` : ""}</span>
-                    <strong>{americanOdds(b.odds)}</strong>
-                    {!b.consensus && <span>not in consensus</span>}
+                    <strong>{b.priced === false ? "—" : americanOdds(b.odds)}</strong>
+                    {b.priced === false ? <span>line only, no price</span>
+                      : b.pick_app ? <span>pick app, per-pick payout</span>
+                      : !b.consensus && <span>not in consensus</span>}
                   </li>
                 ))}
               </ul>

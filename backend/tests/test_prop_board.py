@@ -117,3 +117,16 @@ def test_board_lists_other_books_from_latest_fetch():
     # the shown price is left out; same line first (best first), then other lines; Bovada is flagged
     assert [(b.book, b.line, b.odds, b.consensus) for b in row.other_books] == [
         ("bovada", 0.5, 105, False), ("draftkings", 0.5, -125, True), ("draftkings", 1.5, 260, True)]
+
+
+def test_board_flags_pick_apps_and_lists_prizepicks_line_last():
+    async def go(db):
+        db.add(Props(game_id=2, player_id=1, prop_type="player_points", over_under="Over", odds=-110, line=0.5,
+                     book="fanduel"))
+        db.add_all([pq("Over", -110, "fanduel"), pq("Over", 100, "prizepicks"), pq("Over", -125, "sleeper")])
+        await db.commit()
+        return await C.get_player_prop_board(db, 1)
+    (row,) = run(go)
+    # PrizePicks has no price of its own: listed after the priced books on the line, flagged so nothing compares it
+    assert [(b.book, b.consensus, b.pick_app, b.priced) for b in row.other_books] == [
+        ("sleeper", False, True, True), ("prizepicks", False, True, False)]

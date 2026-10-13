@@ -36,47 +36,169 @@ def test_nightly_off_and_unknown(monkeypatch):
     assert schedules.train_schedule() == "weekly"
 
 
-def _stub_nightly(monkeypatch, logs_ok=True, missing=False):
+def _stub_pipelines(monkeypatch, logs_ok=True, missing=False, before_slate=True):
     calls = []
-    async def ok():
+    async def ok(*args):
         return None
     async def fail():
         raise RuntimeError("scrape failed")
     for name in ("fetch_current_schedules_for_all_teams", "fetch_current_rosters_for_all_teams", "scrape_team_stats",
-                 "refresh_skater_shares", "fetch_recent_actual_starters", "fetch_recent_game_odds",
-                 "fetch_recent_player_prop_odds", "score_logged_predictions", "fetch_current_player_props"):
+                 "refresh_skater_shares", "fetch_recent_actual_starters", "fetch_recent_game_lineups",
+                 "fetch_recent_game_odds", "fetch_recent_player_prop_odds", "score_logged_predictions",
+                 "fetch_current_player_props"):
         monkeypatch.setattr(schedules, name, ok)
     monkeypatch.setattr(schedules, "scrape_all_player_logs", ok if logs_ok else fail)
     async def train():
         calls.append("train")
     monkeypatch.setattr(schedules, "train_models", train)
     monkeypatch.setattr(schedules, "models_missing", lambda: missing)
+    monkeypatch.setattr(schedules, "before_slate", lambda: before_slate)
     return calls
 
 
-def test_nightly_skips_training_off_schedule(monkeypatch):
-    calls = _stub_nightly(monkeypatch)
-    monkeypatch.setattr(schedules, "should_train_tonight", lambda: False)
-    asyncio.run(schedules.nightly_pipeline())
-    assert calls == []
-
-
-def test_nightly_trains_on_schedule_or_when_bundles_missing(monkeypatch):
-    calls = _stub_nightly(monkeypatch)
-    monkeypatch.setattr(schedules, "should_train_tonight", lambda: True)
-    asyncio.run(schedules.nightly_pipeline())
-    assert calls == ["train"]
-    calls = _stub_nightly(monkeypatch, missing=True)
-    monkeypatch.setattr(schedules, "should_train_tonight", lambda: False)
-    asyncio.run(schedules.nightly_pipeline())
-    assert calls == ["train"]
-
-
-def test_nightly_never_trains_after_a_failed_scrape(monkeypatch):
-    calls = _stub_nightly(monkeypatch, logs_ok=False, missing=True)
+def test_nightly_never_trains(monkeypatch):
+    calls = _stub_pipelines(monkeypatch, missing=True)
     monkeypatch.setattr(schedules, "should_train_tonight", lambda: True)
     asyncio.run(schedules.nightly_pipeline())
     assert calls == []
+
+
+def test_catchup_skips_training_off_schedule(monkeypatch):
+    calls = _stub_pipelines(monkeypatch)
+    monkeypatch.setattr(schedules, "should_train_tonight", lambda: False)
+    asyncio.run(schedules.catchup_pipeline())
+    assert calls == []
+
+
+def test_catchup_trains_on_schedule_or_when_bundles_missing(monkeypatch):
+    calls = _stub_pipelines(monkeypatch)
+    monkeypatch.setattr(schedules, "should_train_tonight", lambda: True)
+    asyncio.run(schedules.catchup_pipeline())
+    assert calls == ["train"]
+    calls = _stub_pipelines(monkeypatch, missing=True)
+    monkeypatch.setattr(schedules, "should_train_tonight", lambda: False)
+    asyncio.run(schedules.catchup_pipeline())
+    assert calls == ["train"]
+
+
+def test_catchup_never_trains_after_a_failed_scrape_or_during_the_slate(monkeypatch):
+    calls = _stub_pipelines(monkeypatch, logs_ok=False, missing=True)
+    monkeypatch.setattr(schedules, "should_train_tonight", lambda: True)
+    asyncio.run(schedules.catchup_pipeline())
+    assert calls == []
+    calls = _stub_pipelines(monkeypatch, before_slate=False)
+    asyncio.run(schedules.catchup_pipeline())
+    assert calls == []
+
+
+def test_weekly_training_falls_on_the_monday_catchup(monkeypatch):
+    monkeypatch.delenv("TRAIN_SCHEDULE", raising=False)
+    monkeypatch.delenv("TRAIN_WEEKDAY", raising=False)
+    # 9am ET Monday, in summer and winter time
+    for monday_9_et in (datetime.datetime(2026, 10, 12, 13, tzinfo=datetime.timezone.utc),
+                        datetime.datetime(2026, 11, 2, 14, tzinfo=datetime.timezone.utc)):
+        assert schedules.should_train_tonight(monday_9_et)
+        assert schedules.before_slate(monday_9_et)
+
+
+def test_slate_hours_follow_eastern_time():
+    utc = datetime.timezone.utc
+    assert not schedules.in_slate_hours(datetime.datetime(2026, 10, 12, 15, 59, tzinfo=utc))   # 11:59 EDT
+    assert schedules.in_slate_hours(datetime.datetime(2026, 10, 12, 16, tzinfo=utc))           # noon EDT
+    assert schedules.in_slate_hours(datetime.datetime(2026, 10, 13, 5, tzinfo=utc))            # 1am EDT, late West Coast game
+    assert not schedules.in_slate_hours(datetime.datetime(2026, 10, 13, 9, tzinfo=utc))        # 5am EDT
+    assert not schedules.in_slate_hours(datetime.datetime(2026, 11, 12, 16, tzinfo=utc))       # 11am EST
+    assert schedules.in_slate_hours(datetime.datetime(2026, 11, 12, 17, tzinfo=utc))           # noon EST
+
+
+def test_overdue_counts_from_the_last_completion_or_process_start(monkeypatch):
+    start = datetime.datetime(2026, 10, 12, 8, tzinfo=datetime.timezone.utc)
+    monkeypatch.setattr(schedules, "_process_started_at", start)
+    monkeypatch.setattr(schedules, "_last_completed", {})
+    assert not schedules.is_overdue("nightly", start + datetime.timedelta(hours=25))
+    assert schedules.is_overdue("nightly", start + datetime.timedelta(hours=27))
+    schedules.mark_completed("nightly", start + datetime.timedelta(hours=24))
+    assert not schedules.is_overdue("nightly", start + datetime.timedelta(hours=27))
+    assert schedules.is_overdue("catch-up", start + datetime.timedelta(hours=27))
+
+
+def test_overdue_check_runs_one_pipeline(monkeypatch):
+    runs = []
+    async def nightly():
+        runs.append("nightly")
+    async def catchup():
+        runs.append("catch-up")
+    monkeypatch.setattr(schedules, "nightly_pipeline", nightly)
+    monkeypatch.setattr(schedules, "catchup_pipeline", catchup)
+    monkeypatch.setattr(schedules, "is_overdue", lambda name: True)
+    asyncio.run(schedules.run_overdue_pipelines())
+    assert runs == ["nightly"]
+    monkeypatch.setattr(schedules, "is_overdue", lambda name: name == "catch-up")
+    asyncio.run(schedules.run_overdue_pipelines())
+    assert runs == ["nightly", "catch-up"]
+
+
+def test_run_when_free_waits_for_the_lock_instead_of_skipping():
+    from app import refresh
+    runs = []
+    async def pipeline():
+        runs.append("daily")
+    async def go():
+        await refresh._lock.acquire()
+        refresh._status["running"] = {"name": "training"}
+        waiter = asyncio.create_task(refresh.run_when_free("daily", pipeline, poll_seconds=0.01))
+        await asyncio.sleep(0.05)
+        assert runs == []
+        refresh._status["running"] = None
+        refresh._lock.release()
+        assert await waiter
+        # never free: gives up after max_wait
+        async with refresh._lock:
+            assert not await refresh.run_when_free("daily", pipeline, max_wait=datetime.timedelta(seconds=0.03),
+                                                   poll_seconds=0.01)
+    asyncio.run(go())
+    assert runs == ["daily"]
+
+
+def test_game_lines_every_15_minutes_on_the_slate_else_hourly(monkeypatch):
+    fetches = []
+    async def fetch():
+        fetches.append(1)
+    active = {"on": False}
+    async def slate(now):
+        return active["on"]
+    monkeypatch.setattr(schedules, "fetch_current_game_lines", fetch)
+    monkeypatch.setattr(schedules, "slate_active", slate)
+    monkeypatch.setattr(schedules, "_game_lines_fetched_at", None)
+    t = datetime.datetime(2026, 10, 12, 8, tzinfo=datetime.timezone.utc)
+    async def go():
+        for minutes in range(0, 120, 15):                 # off the slate: the first poll, then hourly
+            await schedules.fetch_game_lines_on_schedule(t + datetime.timedelta(minutes=minutes))
+        assert len(fetches) == 2
+        active["on"] = True
+        for minutes in range(120, 180, 15):               # on the slate: every poll
+            await schedules.fetch_game_lines_on_schedule(t + datetime.timedelta(minutes=minutes))
+        assert len(fetches) == 6
+    asyncio.run(go())
+
+
+def test_close_snapshot_once_per_game(monkeypatch):
+    now = datetime.datetime(2026, 10, 12, 22, 52, tzinfo=datetime.timezone.utc)
+    games = [_game(1, now + datetime.timedelta(minutes=8)), _game(2, now + datetime.timedelta(minutes=38))]
+    snaps = []
+    async def todays(now):
+        return games
+    async def pipeline(game_ids):
+        snaps.append(list(game_ids))
+    monkeypatch.setattr(schedules, "todays_games", todays)
+    monkeypatch.setattr(schedules, "close_snapshot_pipeline", pipeline)
+    monkeypatch.setattr(schedules, "_close_snapshot_taken", set())
+    async def go():
+        await schedules.snapshot_games_about_to_start(now)
+        await schedules.snapshot_games_about_to_start(now + datetime.timedelta(minutes=3))
+        await schedules.snapshot_games_about_to_start(now + datetime.timedelta(minutes=30))
+    asyncio.run(go())
+    assert snaps == [[1], [2]]
 
 
 def _game(id, start, state="FUT"):
@@ -105,6 +227,7 @@ def test_pregame_log_runs_each_game_once_and_retries_a_busy_lock(monkeypatch):
         return list(due)
     async def pipeline(game_ids):
         runs.append(list(game_ids))
+        return True
     monkeypatch.setattr(schedules, "games_due_for_pregame_log", games_due)
     monkeypatch.setattr(schedules, "pregame_log_pipeline", pipeline)
     monkeypatch.setattr(schedules, "_pregame_log_attempted", set())
@@ -119,6 +242,24 @@ def test_pregame_log_runs_each_game_once_and_retries_a_busy_lock(monkeypatch):
         await schedules.log_games_about_to_start()
     asyncio.run(busy_then_free())
     assert runs == [[10, 11], [12]]
+
+
+def test_pregame_log_retries_a_failed_log_a_few_times(monkeypatch):
+    runs = []
+    async def games_due(lead):
+        return [10]
+    async def pipeline(game_ids):
+        runs.append(list(game_ids))
+        return False
+    monkeypatch.setattr(schedules, "games_due_for_pregame_log", games_due)
+    monkeypatch.setattr(schedules, "pregame_log_pipeline", pipeline)
+    monkeypatch.setattr(schedules, "_pregame_log_attempted", set())
+    monkeypatch.setattr(schedules, "_pregame_log_failures", {})
+    async def polls():
+        for _ in range(schedules.PREGAME_LOG_MAX_TRIES + 2):
+            await schedules.log_games_about_to_start()
+    asyncio.run(polls())
+    assert runs == [[10]] * schedules.PREGAME_LOG_MAX_TRIES
 
 
 def test_scheduler_enabled_flag(monkeypatch):

@@ -8,14 +8,20 @@ way in and nothing downstream changes.
 # log's consensus come from these. Hard Rock posts the fullest NHL O/U board (blocked shots, PP points) of them.
 CONSENSUS_BOOKS = ("draftkings", "fanduel", "betmgm", "fanatics", "betrivers", "hardrock", "pinnacle")
 # stored and listed under "other books", but kept out of the consensus: Bovada is offshore (the widest prop board),
-# the exchanges quote takeable asks rather than a book's vigged two-way price. DFS apps (PrizePicks, Underdog) are
-# not fetched at all: their prices are payout tiers, not odds.
-EXTRA_BOOKS = ("bovada", "kalshi", "novig", "prophetx", "polymarket")
-BOOKMAKERS = CONSENSUS_BOOKS + EXTRA_BOOKS
+# the exchanges quote takeable asks rather than a book's vigged two-way price, Fliff is a sweepstakes book.
+EXTRA_BOOKS = ("bovada", "kalshi", "novig", "prophetx", "polymarket", "fliff")
+# pick'em (DFS) apps: stored and listed under "other books" for whoever plays them, but never the shown price, not even
+# for a prop no other book quotes. Their price is a per-pick payout multiplier (Sleeper, Dabble), not a book's odds.
+PICK_APPS = ("prizepicks", "underdog", "sleeper", "pick6", "dabble", "parlayplay")
+# PrizePicks has no per-pick price (PropLine shows +100 on both sides): kept for its line, never priced or compared
+UNPRICED_BOOKS = ("prizepicks",)
+BOOKMAKERS = CONSENSUS_BOOKS + EXTRA_BOOKS + PICK_APPS
 
 BOOK_TITLES = {"draftkings": "DraftKings", "fanduel": "FanDuel", "betmgm": "BetMGM", "fanatics": "Fanatics",
                "betrivers": "BetRivers", "hardrock": "Hard Rock", "pinnacle": "Pinnacle", "bovada": "Bovada", "kalshi": "Kalshi",
-               "novig": "Novig", "prophetx": "ProphetX", "polymarket": "Polymarket"}
+               "novig": "Novig", "prophetx": "ProphetX", "polymarket": "Polymarket", "fliff": "Fliff",
+               "prizepicks": "PrizePicks", "underdog": "Underdog", "sleeper": "Sleeper", "pick6": "DraftKings Pick6",
+               "dabble": "Dabble", "parlayplay": "ParlayPlay"}
 
 # PropLine market key -> app market key. PropLine's docs only list player_goals, player_shots_on_goal, goalie_saves
 # and player_blocked_shots for NHL, but events list the rest too (checked live Oct 2026); only markets an event lists

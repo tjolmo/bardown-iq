@@ -43,6 +43,26 @@ def test_parse_maps_markets_and_skips_what_the_app_does_not_use():
     assert [(p.bookmaker, p.line) for p in props if p.prop_type == "player_hits"] == [("betrivers", 1.5)]
 
 
+def test_parse_keeps_pick_apps_standard_lines_only():
+    def outcome(side, price, point=2.5, **kw):
+        return {"name": side, "description": "Jack Quinn", "price": price, "point": point, "player_id": "nhl:8482097", **kw}
+
+    def book(key, outcomes, line_type="main"):
+        return {"key": key, "markets": [{"key": "player_shots_on_goal", "line_type": line_type, "outcomes": outcomes}]}
+    payload = {"bookmakers": [
+        book("prizepicks", [outcome("Over", 100, dfs_odds_type="standard"), outcome("Under", 100, dfs_odds_type="standard")]),
+        book("prizepicks", [outcome("Over", 100, point=1.5, dfs_odds_type="goblin")], line_type="alternate"),
+        book("prizepicks", [outcome("Over", 100, point=3.5, dfs_odds_type="demon")]),
+        # Underdog's boosted pick pays 1.5x the base payout: not the line's price
+        book("underdog", [outcome("Over", -120, payout_multiplier=1.0), outcome("Under", 110, payout_multiplier=1.5)]),
+        book("sleeper", [outcome("Over", -120), outcome("Under", -137)]),
+    ]}
+    props = parse_player_props(payload)
+    assert sorted((p.bookmaker, p.over_under, p.line, p.odds) for p in props) == [
+        ("prizepicks", "Over", 2.5, 100), ("prizepicks", "Under", 2.5, 100),
+        ("sleeper", "Over", 2.5, -120), ("sleeper", "Under", 2.5, -137), ("underdog", "Over", 2.5, -120)]
+
+
 def test_parse_game_lines_sides_and_lines():
     lines = parse_game_lines(load())
     got = {(l.bookmaker, l.market, l.side): (l.line, l.odds) for l in lines}

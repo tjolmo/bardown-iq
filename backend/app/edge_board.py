@@ -1,5 +1,7 @@
-"""Players with edge: every player with a prop on the next slate where the model's expected return at the shown price
-is positive for at least one side (the same model_prob/edge the player page shows).
+"""Players with edge: every player with a prop on the next slate where the model's expected return is positive for at
+least one side, at the shown price (the same model_prob/edge the player page shows) or at any other book's price on
+the same line, which the page reaches when it's filtered to the visitor's books. A player whose only good side is a
+PrizePicks pick the model likes is kept too: the parlay view builds pick'em entries from those.
 
 Pricing a slate is one model prediction per player with props (~37 a game, ~0.15 s each), so a full slate takes most
 of a minute. The board is cached per game day: a request gets the cached board straight away and, once it's older
@@ -53,6 +55,29 @@ async def price_props(db: AsyncSession, player: Player | None, props: list[Playe
     return expected
 
 
+def best_price_edge(prop: PlayerPropOut) -> float | None:
+    """The side's edge at the best price any stored book has on its line, Bovada, the exchanges and the pick apps
+    included (the shown price is the best of the consensus books only); PrizePicks has no price and doesn't count.
+    None when the model hasn't priced the side."""
+    if prop.model_prob is None:
+        return None
+    best = max([prop.odds] + [b.odds for b in prop.other_books if b.line == prop.line and b.priced],
+               key=american_to_decimal)
+    return prop.model_prob * american_to_decimal(best) - 1
+
+
+# a pick that only a line-only app posts (PrizePicks) is worth a place on the board when the model likes it at least
+# this much: every PrizePicks entry needs more than a coin flip per pick to pay (3x on two picks is 57.7% each)
+PICKEM_MIN_CHANCE = 0.5
+
+
+def pickem_pick(prop: PlayerPropOut) -> bool:
+    """A side a line-only pick'em app (PrizePicks) posts at the model's line, with the model above PICKEM_MIN_CHANCE:
+    a possible leg of a pick'em entry, which the parlay view prices from the app's payout table."""
+    return (prop.model_prob is not None and prop.model_prob > PICKEM_MIN_CHANCE
+            and any(not b.priced and b.line == prop.line for b in prop.other_books))
+
+
 def _models_key() -> tuple:
     return tuple(p.stat().st_mtime if p.exists() else None for p in (SKATER_BUNDLE, GOALIE_BUNDLE))
 
@@ -73,7 +98,9 @@ async def next_slate(db: AsyncSession, now: datetime.datetime | None = None) -> 
 
 async def build_board(db: AsyncSession, now: datetime.datetime | None = None) -> dict:
     """Prices every player with props on the next slate. Players are kept when at least one side has a positive
-    edge; each keeps all of his priced props so the page can show the rest on demand."""
+    edge at some book's price, or is a PrizePicks pick the model likes (pickem_pick, a leg for the parlay view's
+    entries). best_edge is the best at the shown, consensus prices, and can be negative for a player kept for another
+    book or for PrizePicks; each keeps all of his priced props so the page can show the rest on demand."""
     day, games = await next_slate(db, now)
     board = {"game_date": day, "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
              "players_priced": 0, "players": []}
@@ -106,7 +133,7 @@ async def build_board(db: AsyncSession, now: datetime.datetime | None = None) ->
             continue
         board["players_priced"] += 1
         edges = [p.edge for p in props if p.edge is not None]
-        if not edges or max(edges) <= 0:
+        if not any(((e := best_price_edge(p)) is not None and e > 0) or pickem_pick(p) for p in props):
             continue
         team = player.current_team_tri_code
         home = team == game.home_team_tri_code

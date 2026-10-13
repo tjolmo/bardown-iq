@@ -252,6 +252,10 @@ class PropBookPriceOut(BaseModel):
     line: float
     # one of the books the shown best price and the consensus come from (books.CONSENSUS_BOOKS)
     consensus: bool = True
+    # a pick'em app (books.PICK_APPS): the price is a per-pick payout multiplier
+    pick_app: bool = False
+    # False when the book posts the line with no price of its own (PrizePicks): `odds` is a placeholder
+    priced: bool = True
 
 class PlayerPropOut(BaseModel):
     """Output model for a player's prop"""
@@ -272,7 +276,7 @@ class PlayerPropOut(BaseModel):
     # every other stored book's price for this side (PropLine rows only)
     other_books: list[PropBookPriceOut] = []
 class EdgePlayerOut(BaseModel):
-    """A player on the "players with edge" board: at least one prop side with a positive edge"""
+    """A player on the "players with edge" board: at least one prop side with a positive edge at some book's price"""
     player_id: int
     first_name: str
     last_name: str

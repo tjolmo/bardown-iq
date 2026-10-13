@@ -1,7 +1,9 @@
 import type { CSSProperties, FC, ReactNode } from "react";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Headshot } from "../components/rinkboard/Headshot";
 import { RinkHero } from "../components/rinkboard/RinkHero";
+import { TeamChip } from "../components/rinkboard/TeamChip";
 import { useTopGoalies, useTopSkaters } from "../hooks/useTopPlayers";
 import type { GoalieSort, PositionFilter, SkaterSort, TopGoalie, TopPlayer, TopSkater } from "../types/player";
 import type { TeamLookup } from "../types/teams";
@@ -9,8 +11,6 @@ import { gameDay, POSITION_NAMES, teamOf } from "../utils/playerStats";
 import { splitTeamName } from "../utils/gameStatus";
 
 type PlayerType = "skaters" | "goalies";
-
-const DEFAULT_HEADSHOT = "https://assets.nhle.com/mugs/nhl/default-player.png";
 
 // the table shows this many to start, and the button under it adds a page at a time
 const FIRST_PAGE = 16;
@@ -64,31 +64,6 @@ const fullName = (p: TopPlayer): string => `${p.first_name} ${p.last_name}`;
 
 /** "2026–27" from the season's start year. */
 const seasonLabel = (season: number): string => `${season}–${String(season + 1).slice(-2)}`;
-
-const Headshot: FC<{ player: TopPlayer; size: number; className?: string }> = ({ player, size, className }) => (
-  <span className={`lb-face${className ? ` ${className}` : ""}`} style={{ width: size, height: size }}>
-    <img
-      src={player.headshot ?? DEFAULT_HEADSHOT}
-      alt=""
-      loading="lazy"
-      onError={(e) => {
-        const img = e.currentTarget;
-        if (img.src !== DEFAULT_HEADSHOT) img.src = DEFAULT_HEADSHOT;
-      }}
-    />
-  </span>
-);
-
-/** The team's logo beside its tricode: the logo is the identity, the tricode the label in a tight spot. */
-const TeamChip: FC<{ tricode: string; teams: TeamLookup }> = ({ tricode, teams }) => {
-  const team = teamOf(teams, tricode);
-  return (
-    <span className="lb-team" title={team.name}>
-      <img src={team.logoUrl} alt={team.name === tricode ? "" : team.name} />
-      {tricode}
-    </span>
-  );
-};
 
 const PlayerLink: FC<{ player: TopPlayer; children: ReactNode; className?: string }> = ({ player, children, className }) => (
   <Link to={`/${player.position === "G" ? "goalie" : "player"}/${player.id}`} className={className}>
